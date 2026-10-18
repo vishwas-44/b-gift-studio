@@ -1,35 +1,38 @@
 require("dotenv").config({
   path: require("path").resolve(__dirname, "../.env"),
 });
-const { sendEmail, verifyEmailConnection } = require("../src/services/mailer");
+
+const { sendEmail } = require("../src/services/mailer");
 
 async function main() {
   try {
-    console.log("Checking SMTP connection...");
+    if (!process.argv.includes("--send")) {
+      console.log("Mailer configuration loaded.");
+      console.log("Add --send to send a test email.");
+      return;
+    }
 
-    await verifyEmailConnection();
+    const to = process.env.EMAIL_TEST_TO;
 
-    console.log("SMTP connection successful.");
+    if (!to) {
+      throw new Error("Set EMAIL_TEST_TO in backend/.env before sending.");
+    }
 
-    if (process.argv.includes("--send")) {
-      const result = await sendEmail({
-        to: process.env.SMTP_USER,
-        subject: "Bhasi Gift Studio - Email Test",
-        text: "Your Bhasi Gift Studio email service is working.",
-        html: `
+    const result = await sendEmail({
+      to,
+      subject: "Bhasi Gift Studio - Email Test",
+      text: "Your Bhasi Gift Studio email service is working.",
+      html: `
         <div style="font-family: Arial, sans-serif;">
           <h2>Bhasi Gift Studio</h2>
-          <p>Your email service is working correctly.</p>
+          <p>Your email service is working through Resend.</p>
           <p>This is a test email, not an OTP.</p>
         </div>
       `,
-      });
+    });
 
-      console.log("Test email sent successfully.");
-      console.log("Message ID:", result.messageId);
-    } else {
-      console.log("SMTP connection verified. Add --send to send a test email.");
-    }
+    console.log("Test email accepted by Resend.");
+    console.log("Message ID:", result.messageId || "(not returned)");
   } catch (error) {
     console.error("Email test failed:", error.message);
     process.exitCode = 1;
