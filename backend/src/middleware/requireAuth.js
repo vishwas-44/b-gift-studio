@@ -1,4 +1,3 @@
-
 const supabase = require("../supabase");
 
 async function requireAuth(req, res, next) {

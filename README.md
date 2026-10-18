@@ -1,72 +1,74 @@
-# Bhasi Gift Studio — Frontend milestone
+# Bhasi Gift Studio
 
-Personalized-gifting storefront for the hackathon. Built with the Lovable scaffold: React 19, TypeScript, TanStack Start, Tailwind v4 and shadcn/ui. **No backend is connected.**
+Personalized-gifting storefront built with React, TypeScript, TanStack Start, Tailwind and an Express API backed by Supabase. The storefront supports customer accounts, saved designs, order placement with Cash on Delivery, manual UPI QR or Razorpay, and an administrator dashboard. Live deployment still needs the environment and service setup listed below.
 
-## Run
+## Project structure
+
+- `src/routes/`: storefront, account, checkout and admin pages using TanStack file routes.
+- `src/features/storefront/`: shared storefront shell, cart, product cards, customizer and IndexedDB design storage.
+- `src/lib/api/`: typed browser API adapters.
+- `src/data/catalogue.ts`: fallback product catalogue and imagery.
+- `backend/src/routes/`: Express API endpoints for auth, orders, account, artwork, AI, analytics and admin.
+- `backend/src/middleware/`: authentication and admin authorization.
+- `backend/src/services/`: payment, email, shipment validation and product variant services.
+- `supabase/migrations/`: required database schema and database functions, applied in filename order.
+
+The cart stores product and design references only. Browser saved designs use IndexedDB; signed-in designs and uploaded artwork use the backend and private Supabase Storage. Admin artwork links are short-lived signed URLs.
+
+## Local development
+
+1. Install dependencies with `npm ci` in the project root and `npm ci` in `backend/`.
+2. Create `backend/.env` from `backend/.env.example`; fill Supabase URL, anon key and service-role key. Keep service-role and payment keys on the backend only.
+3. Configure `VITE_API_BASE_URL` in `.env.local` to the local API origin if it is not `http://localhost:5000`.
+4. Start API with `npm run dev` from `backend/`; start storefront with `npm run dev` from the project root.
+
+## Supabase setup
+
+Apply these migrations in order in the Supabase SQL Editor:
+
+1. `20261018000000_orders_checkout.sql`
+2. `20261018010000_correct_product_variants.sql`
+3. `20261018020000_manual_courier_tracking.sql`
+4. `20261018030000_traction_analytics.sql`
+5. `20261018040000_razorpay_checkout.sql`
+6. `20261018050000_link_order_artwork.sql`
+7. `20261018060000_customer_feedback.sql`
+8. `20261018070000_courier_bill_tracking.sql`
+9. `20261018080000_manual_upi_qr_payment.sql`
+
+The account, `profiles`, `saved_designs` and `design_assets` schema and the private `customer-design-assets` Storage bucket must also exist with the expected policies. Verify these in the target Supabase project; they are not all created by the migrations in this repository. Assign the `admin` role only to trusted staff. Never expose `SUPABASE_SERVICE_ROLE_KEY` in browser or build variables.
+
+## Deployment configuration
+
+Deploy the TanStack storefront and Express API as separate services unless the hosting platform explicitly supports both. Configure:
+
+- Storefront: `VITE_API_BASE_URL` pointing to the HTTPS API URL.
+- API: `NODE_ENV=production`, `FRONTEND_URL` set to the storefront origin (HTTPS, no path), `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, a random `OTP_HASH_SECRET` of at least 32 characters, and the SMTP variables shown in `backend/.env.example`. If the API sits behind a reverse proxy, set `TRUST_PROXY_HOPS` to the exact number of trusted proxy hops so request IP rate limits work correctly; never set blanket proxy trust.
+- Razorpay: test `RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET`, and `RAZORPAY_WEBHOOK_SECRET` first. Set the provider webhook to `/api/webhooks/razorpay` and subscribe to `payment.captured`. Use live keys only after test verification and explicit business approval.
+- Manual UPI QR: set `UPI_QR_IMAGE_URL` to the public HTTPS URL of the merchant QR image and `MERCHANT_UPI_ID` to the matching merchant UPI ID. Customers submit their UPI transaction reference; an admin must verify the transfer in the bank account and mark it paid. Never treat a customer-provided reference or payment screenshot as proof of receipt.
+- AI image generation: `OPENAI_API_KEY` on the backend if AI tools are offered. Never put it in a `VITE_` variable.
+- Email/OTP: set the SMTP and sender values required by `backend/src/services/mailer.js` and verify signup and password-reset delivery.
+
+Do not deploy with placeholder values from `.env.example`. Confirm HTTPS, allowed CORS origin, webhook delivery, backend health, and required migrations before opening checkout to customers.
+
+## Current limitations and launch checklist
+
+- Shipping and tax are currently zero and are not configured. Add the correct rules and show the final payable amount before launch.
+- COD, manual UPI QR and Razorpay are supported in the code. Manual QR payments remain unpaid until an administrator verifies the transaction reference against the bank account. Net banking, UPI, cards and wallets are presented by Razorpay according to the merchant account configuration; verify enabled modes in Razorpay test checkout.
+- Courier updates are entered by an administrator; no carrier API is connected. Confirm the team can fulfill orders and contact customers using the required phone number.
+- Product photos are illustrative and customizer previews are not print proofs. Confirm product print areas, artwork output resolution, card layouts, packaging and print/fulfillment operations.
+- AI features require a valid backend OpenAI key and have per-user rate limits. Verify cost limits, consent and customer image retention before enabling them publicly.
+- Review privacy, terms, cancellation/returns, shipping, tax invoices and customer support policies for the markets where the store will operate.
+- Admin and account access depend on the existing Supabase `profiles` and role schema. Confirm database RLS, Storage policies and staff roles in the production project.
+- Existing order items with an empty `customization_snapshot` have no artwork reference to recover.
+- Customer feedback is submitted from the signed-in account profile and reviewed under the separate admin Feedback module.
+
+## Verification
+
 ```sh
-bun install
-bun run dev      # development server
-bun run test     # Vitest
-bun run build    # production build (run outside the Lovable editing harness)
+npm run build
+npm test
+npm run lint
 ```
 
-## Routes
-- `/`: homepage, occasions, featured categories and gifts
-- `/products`: catalogue with `search`, `category`, `occasion`, `sort` query parameters
-- `/products/$productId`: product details, variants and quantity
-- `/customize?product=white-mug`: one editor with normal, AI Design and AI Photo Transform modes
-- `/customize?designId=<id>`: restores a saved local design, including its product and variant
-- `/designs`: browser-only saved designs with previews, edit/reuse and confirmed deletion
-- `/cart`: local shopping bag; drawer also available in header
-- `/checkout`: demo summary only; no payment or order
-- `/login`, `/signup`: validation-only forms; no account created or sign-in
-- `/account`: guest account and order-history placeholder
-
-## Files & boundaries
-- `src/data/catalogue.ts`: all six products and canonical INR prices, filters and image imports
-- `src/lib/api/storefront.ts`: replaceable data adapter, explicit unavailable capabilities and shared page metadata
-- `src/features/storefront/`: reusable shell, product cards, cart model/provider/views, auth form and customizer
-- `src/features/storefront/design-storage.ts`: typed IndexedDB adapter, metadata validation and storage failure messages
-- `src/features/storefront/design-preview.tsx`: local saved-design preview using separate photo/text layers
-- `src/styles.css`: semantic light/charcoal tokens, typography, responsive layouts
-- `src/test/storefront.test.ts`: catalogue/pricing/cart regression tests
-- `src/test/design-storage.test.ts`: IndexedDB save/read/update/delete, validation, cart reference privacy and failure tests
-- `src/test/app-routing.test.tsx`: direct matching for all customer pages, including `/designs`
-
-## Demo behaviour
-Images are generated illustrative product visuals, not manufacturing references. Browsing, search, filtering, sorting, size selection, quantity edits, local bag feedback, dark-theme preference and mobile navigation work.
-Cart rows persist in `bhasi-demo-cart-v1`. Rows are validated; price is always read from the catalogue. Personalized rows store only a `designId` plus cart metadata in localStorage, never images, text or prices. Saved records live in IndexedDB database `bhasi-local-designs-v1` with ID, name, product, variant, artwork data URL, independent text layers and update time. Save design commits before success feedback; Save & add to demo bag commits before adding a reference. Save a copy makes an independent reusable design. Editing a saved design updates its bag references (including product/variant); removing it leaves a safe missing-draft state without removing bag quantities. Unavailable browser storage offers retry guidance, while quota errors suggest deleting designs or smaller photos. Failed saves keep the current editor open and never add an unsaved design to the bag.
-
-Saved designs survive refresh only in this browser/profile and origin; they are not uploaded, backed up, synced or print-ready. Clearing browser data deletes them; private browsing may restrict or discard them. Unsaved editor changes still disappear on refresh. JPG/PNG/WebP uploads support up to 8 MB. Text supports editing, size, colour, pointer drag and accessible position sliders. Product photo mockups retain their sample artwork and are not print proofs. Portrait cards show a single photo preview, not a finished 20-photo layout. Existing older bag rows without a design reference cannot recover previously lost artwork.
-Auth checks form validity only, never sends/saves passwords or claims a session. AI prompts/styles/uploads stay local and no results are generated. Checkout never collects personal/payment details, clears the bag or creates an order. Tax/shipping are excluded and pending configuration.
-
-## Integration handoff (teammate)
-1. Replace the local catalogue adapter with typed Express API requests; add pending/error handling via route loaders and query caching when requests become asynchronous.
-2. Connect authentication/session and protected profile/order reads; validate server-side and authorize with database policies. No admin keys in browser.
-3. Replace/extend the local IndexedDB adapter with authenticated design storage and signed uploads, with consent, server-side size/type validation, lifecycle management and explicit migration from local records. Keep artwork and text layers separate; local IDs are not server authorization. No migration/upload occurs in this milestone.
-4. Connect real AI prompt/style and photo-transform APIs; add progress, errors and authentic returned artwork only.
-5. Connect server-validated variant availability, prices, shipping/tax calculation, payment and order creation. Verify payment via backend; never trust client totals.
-6. Connect order history and real fulfilment state, print-area/product templates and 20-photo card layout.
-No credentials, backend, Supabase client or private API keys are included.
-
-## Manual test steps
-1. Open home on desktop and mobile; navigate occasions/categories and search the catalogue. Sort prices.
-2. Open a T-shirt, select L, increment quantity and add to bag; edit/remove in drawer and reload `/cart` to verify persistence.
-3. Open `/customize?product=t-shirt&variant=L`, upload a small PNG/JPG, add/edit/colour/resize/drag text, name it and Save design. Refresh, open `/designs`, then Edit / reuse. Confirm the photo, text, T-shirt and L restore. Save a copy to keep a second independent draft if desired.
-4. Save & add to demo bag, refresh `/cart`, confirm the photo/text summary and Edit design still work. Edit text, save, then return to the bag and check the updated summary. Delete that design from `/designs` with confirmation, refresh the bag and verify missing-draft feedback plus Create replacement design. Bag quantities and canonical prices remain unchanged.
-5. Switch both AI tabs and check integration-pending feedback; no output is invented.
-6. Review `/checkout`; verify the explicit no-order/no-payment status and unchanged bag.
-7. Submit sample valid/invalid login/sign-up forms. Verify no session or account is claimed. Check guest account page and Saved designs link.
-8. Toggle charcoal theme; check mobile menu, empty search/cart/design states and keyboard labels.
-
-## Saved-design verification
-- Small-slice recovery (2026-10-17): inspected the current files and confirmed the adapter, Save design, `/designs` previews/Edit/Delete and `/customize?designId=<id>` restoration were already implemented; no duplicate editor or storage adapter was created. Cart persistence, catalogue prices, theme and service integrations were not changed in this pass.
-- Added two tests in `src/test/design-storage.test.ts` for optional artwork (text-only and photo-only designs) and quota rejection preserving the previously committed draft. Fresh `bunx vitest run`: **34 tests passed across three files**. Automatic build reported **build OK**; no manual build was run in the Lovable editing harness.
-- Fresh browser check: photo + independent text → Save design → refresh → `/designs` preview → Edit restores T-shirt/L/photo/text → confirmed Delete → refresh stays deleted. No page errors or horizontal overflow on `/designs` and `/customize` at 375px and 320px. This check did not exercise the bag. Screenshots inspected for saved, restored, mobile and deleted states.
-- To repeat this smaller slice, follow manual step 3, then delete the saved design on `/designs` and refresh to confirm it remains removed. Storage failure tests simulate unsupported IndexedDB and quota failure; real disk-full/private-mode behavior remains unverified.
-
-Earlier full-milestone verification (not rerun as a cart flow in the small-slice recovery):
-- All 32 Vitest tests passed, including eight new saved-design tests and `/designs` matching. The Lovable automatic build/typecheck passed; no manual build was run inside the editing harness.
-- Playwright passed the actual photo + text → save → refresh → designs → restore T-shirt/L → add → refreshed cart → edit/save → updated summary → delete → refreshed missing-draft flow, with no page errors.
-- No horizontal page overflow at 375px and 320px for `/cart`, `/designs` and `/customize`. Desktop screenshots checked the saved card, personalized bag and missing-draft state.
-- Storage unavailable/quota feedback is covered by tests; real browser disk-full/private-mode behavior is not claimed as tested. Authentication, server storage, AI, payment and orders remain unconnected.
+Run backend tests with `npm test` from `backend/`. The optional SMTP utility only sends a message when explicitly invoked with `npm run email:check -- --send`. Perform an end-to-end checkout in Razorpay test mode and verify COD, payment failure, webhook payment capture, admin permissions, artwork download and order tracking in the deployed staging environment before production.

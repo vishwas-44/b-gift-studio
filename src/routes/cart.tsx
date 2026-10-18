@@ -3,11 +3,7 @@ import { ChevronRight } from "lucide-react";
 import { CartContent } from "@/features/storefront/cart-content";
 import { pageHead } from "@/lib/api/storefront";
 export const Route = createFileRoute("/cart")({
-  head: () =>
-    pageHead(
-      "Your gift bag",
-      "Review the gifts in your local demo cart and continue to demo checkout.",
-    ),
+  head: () => pageHead("Your gift bag", "Review the gifts in your bag and continue to checkout."),
   component: () => (
     <>
       <section className="page-heading">

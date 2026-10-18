@@ -9,6 +9,7 @@ export interface TextLayer {
 }
 export interface DesignDraft {
   artwork?: string | undefined;
+  artworks?: string[] | undefined;
   texts: TextLayer[];
 }
 export interface CartItem {
@@ -17,9 +18,10 @@ export interface CartItem {
   variant: string;
   quantity: number;
   designId?: string | undefined;
-  design?: DesignDraft | undefined;
+  design?: (DesignDraft & { remote?: boolean }) | undefined;
 }
-export const CART_KEY = "bhasi-demo-cart-v1";
+export const CART_KEY = "bhasi-cart-v1";
+export const LEGACY_CART_KEY = "bhasi-demo-cart-v1";
 export function readCart(raw: string | null): CartItem[] {
   try {
     const value: unknown = JSON.parse(raw || "[]");

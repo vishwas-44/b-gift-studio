@@ -10,9 +10,9 @@ export function DesignPreview({ design }: { design: SavedDesign }) {
         src={product.image}
         alt={`${product.name} illustrative local design preview`}
       />
-      {design.artwork && (
+      {(design.artwork || design.artworks?.length) && (
         <div className="artwork-print-area">
-          <img src={design.artwork} alt="Saved local artwork" />
+          <img src={design.artwork ?? design.artworks?.[0]} alt="Saved design photo" />
         </div>
       )}
       {design.texts.map((layer) => (

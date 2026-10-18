@@ -7,6 +7,7 @@ import { getProduct } from "@/data/catalogue";
 import { useStore } from "@/features/storefront/store-context";
 import { DesignPreview } from "@/features/storefront/design-preview";
 import { pageHead } from "@/lib/api/storefront";
+import { hasDesignSession } from "@/lib/api/designs";
 export const Route = createFileRoute("/designs")({
   head: () =>
     pageHead(
@@ -16,8 +17,10 @@ export const Route = createFileRoute("/designs")({
   component: Designs,
 });
 function Designs() {
-  const { designs, designsReady, designError, refreshDesigns, deleteDesign } = useStore();
+  const { designs, designsReady, designError, refreshDesigns, deleteDesign, saveDesign } =
+    useStore();
   const [deleting, setDeleting] = useState<string>();
+  const [migrating, setMigrating] = useState<string>();
   const [confirm, setConfirm] = useState<string>();
   async function remove(id: string) {
     setDeleting(id);
@@ -30,15 +33,32 @@ function Designs() {
       setDeleting(undefined);
     }
   }
+  async function saveToAccount(design: (typeof designs)[number]) {
+    setMigrating(design.id);
+    try {
+      await saveDesign({
+        name: design.name,
+        productId: design.productId,
+        variant: design.variant,
+        artwork: design.artwork,
+        texts: design.texts,
+      });
+      toast.success("A copy was saved to your account. Your browser copy is still here.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not save to your account.");
+    } finally {
+      setMigrating(undefined);
+    }
+  }
   return (
     <>
       <section className="page-heading">
         <div className="container">
-          <span className="eyebrow text-primary">Your local collection</span>
+          <span className="eyebrow text-primary">Your collection</span>
           <h1>Saved designs.</h1>
           <p>
-            Stored only in this browser. Not uploaded, backed up or print-ready. Clearing browser
-            data removes your designs.
+            Account designs sync across browsers. Browser-only drafts stay here until you save a
+            copy to your account.
           </p>
         </div>
       </section>
@@ -55,7 +75,7 @@ function Designs() {
           </Button>
         </div>
         {designError && (
-          <div role="alert" className="demo-notice mb-6">
+          <div role="alert" className="status-notice mb-6">
             <p>{designError}</p>
             <Button
               variant="outline"
@@ -64,12 +84,12 @@ function Designs() {
               onClick={() => void refreshDesigns()}
             >
               <RefreshCw />
-              Retry browser storage
+              Retry saved designs
             </Button>
           </div>
         )}
         {!designsReady ? (
-          <p role="status">Opening your local designs…</p>
+          <p role="status">Opening your saved designs…</p>
         ) : !designs.length ? (
           <div className="empty-state">
             <FolderHeart size={42} />
@@ -89,7 +109,7 @@ function Designs() {
                   <p className="mt-2 text-xs text-muted-foreground">
                     {design.artwork ? "1 photo · " : ""}
                     {design.texts.length} text {design.texts.length === 1 ? "layer" : "layers"} ·
-                    Local to this browser
+                    {design.assetId ? "Synced to your account" : "Browser copy"}
                   </p>
                   <p className="mt-2 text-xs text-muted-foreground">
                     Updated {new Date(design.updatedAt).toLocaleDateString()}
@@ -101,6 +121,16 @@ function Designs() {
                         Edit / reuse
                       </Link>
                     </Button>
+                    {hasDesignSession() && !design.remote && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={Boolean(migrating)}
+                        onClick={() => void saveToAccount(design)}
+                      >
+                        {migrating === design.id ? "Saving…" : "Save to account"}
+                      </Button>
+                    )}
                     <Button
                       variant="ghost"
                       size="icon"
@@ -114,7 +144,7 @@ function Designs() {
                   {confirm === design.id && (
                     <div className="mt-3 text-xs space-y-3">
                       <p>
-                        Delete from this browser? Any bag item using it will show a missing draft.
+                        Delete this saved draft? Any bag item using it will show a missing draft.
                       </p>
                       <div className="flex flex-wrap gap-2">
                         <Button

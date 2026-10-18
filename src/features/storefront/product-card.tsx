@@ -43,7 +43,7 @@ export function ProductCard({ product }: { product: Product }) {
             variant="outline"
             size="icon"
             aria-label={`Add ${product.name} to cart`}
-            title="Add to demo cart"
+            title="Add to bag"
             onClick={() => add(product.id, product.variants[0])}
           >
             <Plus size={17} />

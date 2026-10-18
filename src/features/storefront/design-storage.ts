@@ -7,8 +7,17 @@ export interface SavedDesign extends DesignDraft {
   productId: string;
   variant: string;
   updatedAt: number;
+  /** Remote private-storage reference; signed preview URLs are memory-only. */
+  assetId?: string;
+  assetIds?: string[];
+  remote?: boolean;
 }
-export type SaveDesignInput = Omit<SavedDesign, "id" | "updatedAt"> & { id?: string | undefined };
+export type SaveDesignInput = Omit<SavedDesign, "id" | "updatedAt"> & {
+  id?: string | undefined;
+  assetType?: "original_photo" | "generated_image" | "other";
+  aiPrompt?: string;
+  aiStyle?: string;
+};
 const DATABASE = "bhasi-local-designs-v1";
 const STORE = "designs";
 const MAX_ARTWORK_LENGTH = 12 * 1024 * 1024;
@@ -68,7 +77,20 @@ export function readSavedDesign(value: unknown): SavedDesign | undefined {
       !/^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/]+={0,2}$/.test(row.artwork))
   )
     return undefined;
-  if (!row.artwork && !row.texts.some((t) => t.text.trim())) return undefined;
+  if (
+    row.artworks !== undefined &&
+    (!Array.isArray(row.artworks) ||
+      row.artworks.length > 20 ||
+      !row.artworks.every(
+        (image) =>
+          typeof image === "string" &&
+          image.length <= MAX_ARTWORK_LENGTH &&
+          /^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/]+={0,2}$/.test(image),
+      ))
+  )
+    return undefined;
+  if (!row.artwork && !row.artworks?.length && !row.texts.some((t) => t.text.trim()))
+    return undefined;
   return {
     id: row.id,
     name: row.name.trim(),
@@ -76,6 +98,7 @@ export function readSavedDesign(value: unknown): SavedDesign | undefined {
     variant: row.variant,
     updatedAt: row.updatedAt,
     artwork: row.artwork,
+    ...(row.artworks ? { artworks: [...row.artworks] } : {}),
     texts: row.texts.map(({ id, text, color, size, x, y }) => ({ id, text, color, size, x, y })),
   };
 }

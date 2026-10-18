@@ -18,7 +18,7 @@ export interface Product {
   variants: [string, ...string[]];
   occasions: string[];
 }
-// Frontend demo catalogue. Prices are the single source of truth until an API is connected.
+// Fallback catalogue used while the storefront API is unavailable.
 export const products: Product[] = [
   {
     id: "white-mug",
@@ -92,7 +92,7 @@ export const products: Product[] = [
     category: "Photo gifts",
     image: cards,
     description:
-      "Your camera roll, made tangible. A set of 20 portrait photo cards for the moments too lovely to leave on a screen. Multi-photo layout and print preparation will connect with the backend.",
+      "Your camera roll, made tangible. Turn 20 favourite photos into individual, full-resolution portrait photo cards.",
     variants: ["Set of 20 photos"],
     occasions: ["Anniversary", "For friends", "Just because"],
   },

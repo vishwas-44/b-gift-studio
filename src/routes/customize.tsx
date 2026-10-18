@@ -19,7 +19,7 @@ export const Route = createFileRoute("/customize")({
   head: () =>
     pageHead(
       "Make it personal",
-      "Create and save a personalized gift preview only in this browser, with your own photo and editable text. AI tools remain pending integration.",
+      "Create and save a personalized gift design with editable text, AI generated artwork, and AI photo transformations.",
     ),
   component: Customize,
 });
@@ -47,7 +47,7 @@ function Customize() {
         </p>
       ) : designId && !design ? (
         <div className="container py-12">
-          <div className="demo-notice" role="alert">
+          <div className="status-notice" role="alert">
             <h2>Saved draft unavailable</h2>
             <p>
               {designError ||

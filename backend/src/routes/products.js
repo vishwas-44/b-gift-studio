@@ -1,4 +1,3 @@
-
 const express = require("express");
 const supabase = require("../supabase");
 
@@ -9,14 +8,14 @@ router.get("/", async (req, res, next) => {
     const { data, error } = await supabase
       .from("products")
       .select(
-        "id, name, slug, description, price, currency, image_url, stock_quantity, is_active"
+        "id, name, slug, description, price, currency, image_url, stock_quantity, is_active, variants",
       )
       .eq("is_active", true)
       .order("name", { ascending: true });
 
     if (error) {
-    console.error("Supabase products query failed:", error);
-    return next(error);
+      console.error("Supabase products query failed:", error);
+      return next(error);
     }
 
     res.status(200).json({

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import {
   ArrowRight,
@@ -14,8 +14,9 @@ import {
 import hero from "@/assets/gift-hero.jpg";
 import { Button } from "@/components/ui/button";
 import { categories } from "@/data/catalogue";
-import { storefrontApi, pageHead } from "@/lib/api/storefront";
+import { fetchProductsFromApi, pageHead, type StorefrontProduct } from "@/lib/api/storefront";
 import { ProductCard } from "@/features/storefront/product-card";
+
 export const Route = createFileRoute("/")({
   head: () =>
     pageHead(
@@ -24,9 +25,50 @@ export const Route = createFileRoute("/")({
     ),
   component: Home,
 });
+
 function Home() {
   const [category, setCategory] = useState("All gifts");
-  const featured = storefrontApi.listProducts({ category }).slice(0, 4);
+  const [featuredProducts, setFeaturedProducts] = useState<StorefrontProduct[]>([]);
+  const [loadingProducts, setLoadingProducts] = useState(true);
+  const [productError, setProductError] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadFeaturedProducts() {
+      setLoadingProducts(true);
+      setProductError("");
+
+      try {
+        const products = await fetchProductsFromApi();
+
+        if (!cancelled) {
+          setFeaturedProducts(products);
+        }
+      } catch (error: unknown) {
+        if (!cancelled) {
+          setProductError(
+            error instanceof Error ? error.message : "Unable to load products. Please try again.",
+          );
+        }
+      } finally {
+        if (!cancelled) {
+          setLoadingProducts(false);
+        }
+      }
+    }
+
+    void loadFeaturedProducts();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const featured = featuredProducts
+    .filter((product) => category === "All gifts" || product.category === category)
+    .slice(0, 4);
+
   return (
     <>
       <section className="hero">
@@ -70,6 +112,7 @@ function Home() {
           </div>
         </div>
       </section>
+
       <section className="studio-strip" aria-label="The Bhasi way">
         <div className="container studio-strip-inner">
           <div className="studio-strip-item">
@@ -95,6 +138,7 @@ function Home() {
           </div>
         </div>
       </section>
+
       <section className="section container">
         <div className="section-heading">
           <div>
@@ -105,9 +149,15 @@ function Home() {
             Find a gift <ArrowRight size={15} />
           </Link>
         </div>
+
         <div className="occasion-grid">
           {[
-            { name: "Birthday", copy: "Make their day, their way", icon: Cake, tone: "rose" },
+            {
+              name: "Birthday",
+              copy: "Make their day, their way",
+              icon: Cake,
+              tone: "rose",
+            },
             {
               name: "Anniversary",
               copy: "For your favourite love story",
@@ -120,7 +170,12 @@ function Home() {
               icon: PartyPopper,
               tone: "peach",
             },
-            { name: "Just because", copy: "No occasion. Just love.", icon: Flower2, tone: "mint" },
+            {
+              name: "Just because",
+              copy: "No occasion. Just love.",
+              icon: Flower2,
+              tone: "mint",
+            },
           ].map(({ name, copy, icon: Icon, tone }) => (
             <Link
               to="/products"
@@ -137,6 +192,7 @@ function Home() {
           ))}
         </div>
       </section>
+
       <section className="section featured-section container">
         <div className="section-heading">
           <div>
@@ -148,24 +204,44 @@ function Home() {
             Shop all gifts <ArrowRight size={15} />
           </Link>
         </div>
+
         <div className="category-tabs" aria-label="Featured gift categories">
-          {categories.map((c) => (
+          {categories.map((item) => (
             <Button
-              key={c}
-              variant={category === c ? "default" : "outline"}
+              key={item}
+              variant={category === item ? "default" : "outline"}
               size="sm"
-              onClick={() => setCategory(c)}
+              onClick={() => setCategory(item)}
             >
-              {c}
+              {item}
             </Button>
           ))}
         </div>
-        <div className="product-grid">
-          {featured.map((product) => (
-            <ProductCard product={product} key={product.id} />
-          ))}
-        </div>
+
+        {loadingProducts ? (
+          <p role="status" className="py-8 text-center text-muted-foreground">
+            Loading gifts…
+          </p>
+        ) : productError ? (
+          <div role="alert" className="py-8 text-center">
+            <p className="text-destructive">{productError}</p>
+            <Button className="mt-3" variant="outline" onClick={() => window.location.reload()}>
+              Try again
+            </Button>
+          </div>
+        ) : featured.length > 0 ? (
+          <div className="product-grid">
+            {featured.map((product) => (
+              <ProductCard product={product} key={product.backendId} />
+            ))}
+          </div>
+        ) : (
+          <p className="py-8 text-center text-muted-foreground">
+            No products are available in this category right now.
+          </p>
+        )}
       </section>
+
       <section className="custom-band">
         <div className="container custom-band-inner">
           <div className="custom-band-icon">
