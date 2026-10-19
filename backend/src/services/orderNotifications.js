@@ -184,7 +184,14 @@ async function sendOrderNotification(orderId, type, eventKey = `${orderId}:${typ
     .eq("id", event.id);
   if (attempt.error) console.error("Could not record notification attempt:", attempt.error.message);
   try {
-    const result = await sendEmail({ to: order.customer_email, ...message });
+    const formatted = emailMarkup(message.title, message.rows, order);
+
+    const result = await sendEmail({
+      to: order.customer_email,
+      subject: message.subject,
+      text: formatted.text,
+      html: formatted.html,
+    });
     await supabaseAdmin
       .from("order_notification_events")
       .update({
@@ -234,7 +241,14 @@ async function retryNotification(eventId) {
   const message = notificationFor(event.notification_type, order);
   if (!message || !order.customer_email) return { status: "failed" };
   try {
-    const result = await sendEmail({ to: order.customer_email, ...message });
+    const formatted = emailMarkup(message.title, message.rows, order);
+
+    const result = await sendEmail({
+      to: order.customer_email,
+      subject: message.subject,
+      text: formatted.text,
+      html: formatted.html,
+    });
     await supabaseAdmin
       .from("order_notification_events")
       .update({
