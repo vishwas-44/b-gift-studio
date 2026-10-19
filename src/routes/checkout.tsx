@@ -17,6 +17,7 @@ import {
 } from "@/lib/api/orders";
 import { pageHead } from "@/lib/api/storefront";
 import { orderWhatsAppUrl } from "@/lib/config/business";
+import { calculateSubtotal } from "@/features/storefront/pricing";
 
 const blankAddress: DeliveryAddress = {
   fullName: "",
@@ -165,9 +166,11 @@ function Checkout() {
     item,
     product: products.find((row) => row.id === item.productId),
   }));
-  const subtotal = lines.reduce(
-    (sum, line) => sum + (line.product?.price || 0) * line.item.quantity,
-    0,
+  const subtotal = calculateSubtotal(
+    lines.map(({ product, item }) => ({
+      unitPrice: product?.price || 0,
+      quantity: item.quantity,
+    })),
   );
   const localDesigns = designsReady
     ? cart.filter((item) => item.designId && !item.design?.remote)

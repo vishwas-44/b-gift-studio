@@ -1,6 +1,12 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { products, filterProducts } from "@/data/catalogue";
 import { readCart, subtotal, persistentCart } from "@/features/storefront/cart-model";
+import { calculateSubtotal } from "@/features/storefront/pricing";
+import { fetchProductsFromApi } from "@/lib/api/storefront";
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
 describe("Canonical gift prices", () => {
   it.each([
     ["white-mug", 279],
@@ -14,6 +20,60 @@ describe("Canonical gift prices", () => {
   });
   it("portrait cards contain 20 photos", () => {
     expect(products.find((p) => p.id === "portrait-cards")?.variants).toEqual(["Set of 20 photos"]);
+  });
+});
+describe("checkout estimates from the current API catalogue prices", () => {
+  it("uses product API unit prices in the estimate", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            success: true,
+            products: [
+              {
+                id: "sipper-backend-id",
+                name: "600 ml still sipper",
+                slug: "still-sipper-600ml",
+                price: "759.00",
+                currency: "INR",
+                stock_quantity: 10,
+                is_active: true,
+              },
+              {
+                id: "magic-mug-backend-id",
+                name: "Magic mug",
+                slug: "magic-mug",
+                price: "449.00",
+                currency: "INR",
+                stock_quantity: 10,
+                is_active: true,
+              },
+            ],
+          }),
+          { status: 200 },
+        ),
+      ),
+    );
+    const liveProducts = await fetchProductsFromApi();
+    const sipper = liveProducts.find((product) => product.id === "sipper")!;
+    const magicMug = liveProducts.find((product) => product.id === "magic-mug")!;
+
+    expect(
+      calculateSubtotal([
+        { unitPrice: sipper.price, quantity: 1 },
+        { unitPrice: magicMug.price, quantity: 1 },
+      ]),
+    ).toBe(1208);
+  });
+
+  it("multiplies each current unit price by quantity without shipping or tax", () => {
+    expect(
+      calculateSubtotal([
+        { unitPrice: 759, quantity: 2 },
+        { unitPrice: 449, quantity: 3 },
+      ]),
+    ).toBe(2865);
   });
 });
 describe("Catalogue and local bag", () => {

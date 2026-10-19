@@ -1,5 +1,5 @@
 ﻿import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { createOrder, type DeliveryAddress } from "@/lib/api/orders";
+import { createCashOnDeliveryOrder, createOrder, type DeliveryAddress } from "@/lib/api/orders";
 
 const address: DeliveryAddress = {
   fullName: "A Customer",
@@ -41,15 +41,21 @@ afterEach(() => {
 
 describe("checkout API client", () => {
   it("returns only a server-confirmed unpaid order", async () => {
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValue(new Response(JSON.stringify({ success: true, order }), { status: 201 }));
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          success: true,
+          order: { ...order, payment_method: "cash_on_delivery" },
+        }),
+        { status: 201 },
+      ),
+    );
     vi.stubGlobal("fetch", fetchMock);
-    const result = await createOrder({
+    const result = await createCashOnDeliveryOrder({
       shippingAddress: address,
       items: [{ productId: "a3beef71-8109-4f91-a400-2a823a254202", variant: "White", quantity: 1 }],
     });
-    expect(result).toEqual(order);
+    expect(result).toEqual({ ...order, payment_method: "cash_on_delivery" });
     const body = JSON.parse(fetchMock.mock.calls[0][1].body as string);
     expect(body.items[0]).toEqual({
       productId: "a3beef71-8109-4f91-a400-2a823a254202",
@@ -68,12 +74,18 @@ describe("checkout API client", () => {
     const validKey = "a3beef71-8109-4f91-a400-2a823a254201";
     sessionStorage.setItem("bhasi-checkout-request-key", "expired-or-corrupt-key");
     vi.spyOn(crypto, "randomUUID").mockReturnValue(validKey);
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValue(new Response(JSON.stringify({ success: true, order }), { status: 201 }));
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          success: true,
+          order: { ...order, payment_method: "cash_on_delivery" },
+        }),
+        { status: 201 },
+      ),
+    );
     vi.stubGlobal("fetch", fetchMock);
 
-    await createOrder({
+    await createCashOnDeliveryOrder({
       shippingAddress: address,
       items: [{ productId: "a3beef71-8109-4f91-a400-2a823a254202", variant: "White", quantity: 1 }],
     });
