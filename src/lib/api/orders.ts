@@ -1,10 +1,12 @@
 ﻿const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:5000";
 const SESSION_KEY = "bhasi-auth-session";
 const CHECKOUT_KEY = "bhasi-checkout-request-key";
+const CHECKOUT_KEY_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 function checkoutRequestKey() {
   let value = sessionStorage.getItem(CHECKOUT_KEY);
-  if (!value) {
+  if (!value || !CHECKOUT_KEY_PATTERN.test(value)) {
     value = crypto.randomUUID();
     sessionStorage.setItem(CHECKOUT_KEY, value);
   }

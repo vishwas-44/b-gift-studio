@@ -3,6 +3,7 @@ require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
 const rateLimit = require("express-rate-limit");
+const { resolveTrustProxyHops } = require("./services/proxyTrust");
 const ordersRouter = require("./routes/orders");
 
 const productsRouter = require("./routes/products");
@@ -19,11 +20,7 @@ const razorpayWebhookRouter = require("./routes/razorpayWebhook");
 const app = express();
 const PORT = process.env.PORT || 5000;
 const frontendUrl = process.env.FRONTEND_URL;
-const trustProxyHops = Number(process.env.TRUST_PROXY_HOPS || 0);
-
-if (!Number.isInteger(trustProxyHops) || trustProxyHops < 0) {
-  throw new Error("TRUST_PROXY_HOPS must be a non-negative integer.");
-}
+const trustProxyHops = resolveTrustProxyHops();
 
 if (process.env.NODE_ENV === "production" && !frontendUrl) {
   throw new Error("FRONTEND_URL must be set to the production storefront origin.");

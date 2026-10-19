@@ -36,6 +36,7 @@ afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
   localStorage.clear();
+  sessionStorage.clear();
 });
 
 describe("checkout API client", () => {
@@ -56,6 +57,30 @@ describe("checkout API client", () => {
       quantity: 1,
     });
     expect(body.shippingAddress).toEqual(address);
+    const headers = fetchMock.mock.calls[0][1].headers as Record<string, string>;
+    expect(headers["Idempotency-Key"]).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
+    );
+    expect(sessionStorage.getItem("bhasi-checkout-request-key")).toBeNull();
+  });
+
+  it("replaces a malformed persisted checkout key before sending the request", async () => {
+    const validKey = "a3beef71-8109-4f91-a400-2a823a254201";
+    sessionStorage.setItem("bhasi-checkout-request-key", "expired-or-corrupt-key");
+    vi.spyOn(crypto, "randomUUID").mockReturnValue(validKey);
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(new Response(JSON.stringify({ success: true, order }), { status: 201 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await createOrder({
+      shippingAddress: address,
+      items: [{ productId: "a3beef71-8109-4f91-a400-2a823a254202", variant: "White", quantity: 1 }],
+    });
+
+    const headers = fetchMock.mock.calls[0][1].headers as Record<string, string>;
+    expect(headers["Idempotency-Key"]).toBe(validKey);
+    expect(crypto.randomUUID).toHaveBeenCalledOnce();
   });
 
   it("surfaces stock conflicts without returning an order", async () => {
