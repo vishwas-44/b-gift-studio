@@ -3,6 +3,7 @@ const supabaseAdmin = require("../supabaseAdmin");
 const requireAuth = require("../middleware/requireAuth");
 const { canonicalVariant } = require("../services/productVariants");
 const { credentials, razorpayRequest, verifyPaymentSignature } = require("../services/razorpay");
+const { sendOrderNotification } = require("../services/orderNotifications");
 
 const router = express.Router();
 router.use(requireAuth);
@@ -247,10 +248,18 @@ router.post("/", async (req, res, next) => {
       item.variant = variant;
     }
 
-    const { data: order, error } = await supabaseAdmin.rpc("create_customer_order", {
+    const requestKey = req.get("Idempotency-Key");
+    if (!UUID_PATTERN.test(requestKey || "")) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid checkout request key. Refresh checkout and retry.",
+      });
+    }
+    const { data: order, error } = await supabaseAdmin.rpc("create_customer_order_idempotent", {
       p_user_id: req.user.id,
       p_items: items,
       p_shipping_address: shippingAddress,
+      p_request_key: requestKey,
     });
     if (error) {
       console.error("Checkout order creation failed:", error.message);
@@ -265,6 +274,18 @@ router.post("/", async (req, res, next) => {
       });
     }
     if (useRazorpay) {
+      if (order.razorpay_order_id) {
+        return res.status(201).json({
+          success: true,
+          order: { ...order, payment_method: "razorpay" },
+          payment: {
+            keyId: credentials().keyId,
+            orderId: order.razorpay_order_id,
+            amount: Math.round(Number(order.total_amount) * 100),
+            currency: order.currency,
+          },
+        });
+      }
       const amount = Math.round(Number(order.total_amount) * 100);
       const paymentOrder = await razorpayRequest("/orders", {
         method: "POST",
@@ -294,7 +315,11 @@ router.post("/", async (req, res, next) => {
       }
       return res.status(201).json({
         success: true,
-        order: savedOrder,
+        order: {
+          ...savedOrder,
+          shipping_address: order.shipping_address,
+          items: order.items || [],
+        },
         payment: {
           keyId: credentials().keyId,
           orderId: paymentOrder.id,
@@ -314,10 +339,15 @@ router.post("/", async (req, res, next) => {
         )
         .single();
       if (codError) return next(codError);
+      void sendOrderNotification(
+        codOrder.id,
+        "order_confirmation",
+        `${codOrder.id}:order_confirmation`,
+      );
       return res.status(201).json({
         success: true,
         message: "Order placed. Payment is due on delivery.",
-        order: codOrder,
+        order: { ...codOrder, shipping_address: order.shipping_address, items: order.items || [] },
       });
     }
     if (useManualUpiQr) {
@@ -331,10 +361,15 @@ router.post("/", async (req, res, next) => {
         )
         .single();
       if (upiError) return next(upiError);
+      void sendOrderNotification(
+        upiOrder.id,
+        "order_confirmation",
+        `${upiOrder.id}:order_confirmation`,
+      );
       return res.status(201).json({
         success: true,
         message: "Order created. Payment remains pending manual verification.",
-        order: upiOrder,
+        order: { ...upiOrder, shipping_address: order.shipping_address, items: order.items || [] },
       });
     }
     return res.status(400).json({ success: false, message: "Choose a supported payment method." });
@@ -478,6 +513,11 @@ router.post("/razorpay/verify", async (req, res, next) => {
         .status(409)
         .json({ success: false, message: "Order payment status changed. Refresh your orders." });
     }
+    void sendOrderNotification(
+      updatedOrder.id,
+      "order_confirmation",
+      `${updatedOrder.id}:order_confirmation`,
+    );
     return res.json({ success: true, order: updatedOrder });
   } catch (error) {
     if (error.status)

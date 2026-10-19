@@ -1,7 +1,12 @@
 const express = require("express");
 const supabaseAdmin = require("../supabaseAdmin");
 const requireAdmin = require("../middleware/requireAdmin");
-const { isSafeTrackingUrl, isValidShipmentDate } = require("../services/shipmentValidation");
+const {
+  isSafeTrackingUrl,
+  isOfficialTrackingUrl,
+  isValidShipmentDate,
+} = require("../services/shipmentValidation");
+const { sendOrderNotification, retryNotification } = require("../services/orderNotifications");
 
 const router = express.Router();
 
@@ -55,6 +60,41 @@ async function attachArtworkLinks(item, userId) {
 
 // Every endpoint requires a verified administrator.
 router.use(requireAdmin);
+
+router.get("/:id/notifications", async (req, res, next) => {
+  try {
+    if (!UUID_PATTERN.test(req.params.id))
+      return res.status(400).json({ success: false, message: "Invalid order ID." });
+    const { data, error } = await supabaseAdmin
+      .from("order_notification_events")
+      .select(
+        "id, notification_type, provider, attempt_count, delivery_status, provider_message_id, error_detail, created_at, updated_at",
+      )
+      .eq("order_id", req.params.id)
+      .order("created_at", { ascending: false });
+    if (error) return next(error);
+    return res.json({ success: true, notifications: data || [] });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+router.post("/:id/notifications/:eventId/retry", async (req, res, next) => {
+  try {
+    if (!UUID_PATTERN.test(req.params.id) || !UUID_PATTERN.test(req.params.eventId))
+      return res.status(400).json({ success: false, message: "Invalid notification ID." });
+    const { data: event, error } = await supabaseAdmin
+      .from("order_notification_events")
+      .select("order_id")
+      .eq("id", req.params.eventId)
+      .single();
+    if (error || event?.order_id !== req.params.id)
+      return res.status(404).json({ success: false, message: "Notification event not found." });
+    return res.json({ success: true, notification: await retryNotification(req.params.eventId) });
+  } catch (error) {
+    return next(error);
+  }
+});
 
 // GET /api/admin/orders
 // Supports pagination, order-number search, status and payment filters.
@@ -268,7 +308,7 @@ router.patch("/:id/fulfillment", async (req, res, next) => {
       if (!isSafeTrackingUrl(trackingUrl)) {
         return res.status(400).json({
           success: false,
-          message: "Tracking URL must be a safe HTTP or HTTPS link without embedded credentials.",
+          message: "Tracking URL must be a secure HTTPS link without embedded credentials.",
         });
       }
     }
@@ -286,6 +326,19 @@ router.patch("/:id/fulfillment", async (req, res, next) => {
           "Enter courier, tracking ID, handover date and official tracking URL before confirming courier handover.",
       });
     }
+    if (status === "shipped" && !isOfficialTrackingUrl(trackingUrl, courierCompany)) {
+      return res.status(400).json({
+        success: false,
+        message: "Enter a secure official tracking URL for the selected courier company.",
+      });
+    }
+    const { data: previous, error: previousError } = await supabaseAdmin
+      .from("orders")
+      .select("status")
+      .eq("id", id)
+      .maybeSingle();
+    if (previousError) return next(previousError);
+    if (!previous) return res.status(404).json({ success: false, message: "Order not found." });
     const { data, error } = await supabaseAdmin.rpc("admin_update_order_fulfillment", {
       p_order_id: id,
       p_admin_id: req.user.id,
@@ -314,6 +367,12 @@ router.patch("/:id/fulfillment", async (req, res, next) => {
       if (error.code === "22023")
         return res.status(409).json({ success: false, message: error.message });
       return res.status(500).json({ success: false, message: "Unable to save order fulfillment." });
+    }
+    if (previous.status !== data.status) {
+      const type = ["processing", "cancelled", "shipped"].includes(data.status)
+        ? data.status
+        : null;
+      if (type) void sendOrderNotification(data.id, type, `${data.id}:${data.status}`);
     }
     return res
       .status(200)

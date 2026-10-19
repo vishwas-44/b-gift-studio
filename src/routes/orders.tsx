@@ -4,6 +4,7 @@ import { ClipboardList, LoaderCircle, PackageOpen, Truck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { listMyOrders, type OrderHistoryRow } from "@/lib/api/orders";
 import { pageHead } from "@/lib/api/storefront";
+import { orderWhatsAppUrl } from "@/lib/config/business";
 
 export const Route = createFileRoute("/orders")({
   head: () => pageHead("My orders", "View orders placed with Bhasi Gift Studio."),
@@ -204,6 +205,13 @@ function MyOrders() {
                   <span>{money(order.total_amount, order.currency || "INR")}</span>
                 </div>
                 <div className="mt-4 flex justify-end">
+                  {orderWhatsAppUrl(order) && (
+                    <Button asChild size="sm" variant="outline" className="mr-2">
+                      <a href={orderWhatsAppUrl(order)!} target="_blank" rel="noopener noreferrer">
+                        Contact on WhatsApp
+                      </a>
+                    </Button>
+                  )}
                   <Button asChild size="sm" variant="outline">
                     <Link to="/track-order" search={{ orderId: order.id }}>
                       <Truck /> Track order

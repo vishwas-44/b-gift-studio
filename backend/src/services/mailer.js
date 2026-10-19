@@ -1,16 +1,14 @@
 const { Resend } = require("resend");
 
-const requiredVariables = ["RESEND_API_KEY", "EMAIL_FROM"];
-
-for (const variable of requiredVariables) {
-  if (!process.env[variable]) {
-    throw new Error(`Missing required environment variable: ${variable}`);
-  }
-}
-
-const resend = new Resend(process.env.RESEND_API_KEY);
+let resend;
 
 async function sendEmail({ to, subject, text, html }) {
+  if (!process.env.RESEND_API_KEY || !process.env.EMAIL_FROM) {
+    throw new Error(
+      "Email is in development mode. Configure RESEND_API_KEY and EMAIL_FROM to send emails.",
+    );
+  }
+  resend ||= new Resend(process.env.RESEND_API_KEY);
   const { data, error } = await resend.emails.send({
     from: process.env.EMAIL_FROM,
     to,
@@ -34,8 +32,8 @@ async function sendEmail({ to, subject, text, html }) {
 async function verifyEmailConnection() {
   // Resend does not use an SMTP connection. This checks that the
   // API key is configured; a real send is required to verify delivery.
-  if (!process.env.RESEND_API_KEY) {
-    throw new Error("RESEND_API_KEY is not configured.");
+  if (!process.env.RESEND_API_KEY || !process.env.EMAIL_FROM) {
+    throw new Error("RESEND_API_KEY and EMAIL_FROM must be configured.");
   }
 
   return true;

@@ -1,5 +1,19 @@
 ﻿const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:5000";
 const SESSION_KEY = "bhasi-auth-session";
+const CHECKOUT_KEY = "bhasi-checkout-request-key";
+
+function checkoutRequestKey() {
+  let value = sessionStorage.getItem(CHECKOUT_KEY);
+  if (!value) {
+    value = crypto.randomUUID();
+    sessionStorage.setItem(CHECKOUT_KEY, value);
+  }
+  return value;
+}
+
+function clearCheckoutRequestKey() {
+  sessionStorage.removeItem(CHECKOUT_KEY);
+}
 
 export type DeliveryAddress = {
   fullName: string;
@@ -31,6 +45,13 @@ export type CreatedOrder = {
   total_amount: number | string;
   currency: string;
   created_at: string;
+  shipping_address?: DeliveryAddress;
+  items?: Array<{
+    product_name: string;
+    variant: string;
+    quantity: number;
+    unit_price: number | string;
+  }>;
   manual_payment_reference?: string | null;
   manual_payment_reference_submitted_at?: string | null;
   payment_verified_at?: string | null;
@@ -54,6 +75,9 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     ...options,
     headers: {
       Authorization: `Bearer ${token()}`,
+      ...(path === "/api/orders" && options.method === "POST"
+        ? { "Idempotency-Key": checkoutRequestKey() }
+        : {}),
       ...(options.body ? { "Content-Type": "application/json" } : {}),
       ...options.headers,
     },
@@ -85,6 +109,7 @@ export async function createOrder(input: {
   if (!result.order?.id || !result.order.order_number || result.order.payment_status !== "unpaid") {
     throw new Error("The server response did not confirm an unpaid order. Your bag was kept.");
   }
+  clearCheckoutRequestKey();
   return result.order;
 }
 
@@ -129,6 +154,7 @@ export async function createManualUpiQrOrder(input: {
   ) {
     throw new Error("The server did not confirm a pending UPI QR order. Your bag was kept.");
   }
+  clearCheckoutRequestKey();
   return result.order;
 }
 
@@ -157,6 +183,7 @@ export async function createCashOnDeliveryOrder(input: {
   ) {
     throw new Error("The server did not confirm a cash on delivery order. Your bag was kept.");
   }
+  clearCheckoutRequestKey();
   return result.order;
 }
 
@@ -181,6 +208,7 @@ export async function createRazorpayOrder(input: {
   ) {
     throw new Error("The server did not return a valid Razorpay payment order. Your bag was kept.");
   }
+  clearCheckoutRequestKey();
   return result;
 }
 

@@ -16,6 +16,7 @@ import {
   type DeliveryAddress,
 } from "@/lib/api/orders";
 import { pageHead } from "@/lib/api/storefront";
+import { orderWhatsAppUrl } from "@/lib/config/business";
 
 const blankAddress: DeliveryAddress = {
   fullName: "",
@@ -295,7 +296,7 @@ function Checkout() {
             signature: response.razorpay_signature,
           })
             .then((verified) => {
-              setOrder(verified);
+              setOrder({ ...verified, items: verified.items || created.items });
               setPendingPayment(null);
               clearCart();
             })
@@ -452,6 +453,13 @@ function Checkout() {
             </div>
           )}
           <div className="mt-4 flex flex-wrap justify-center gap-3">
+            {orderWhatsAppUrl(order) && (
+              <Button asChild variant="outline">
+                <a href={orderWhatsAppUrl(order)!} target="_blank" rel="noopener noreferrer">
+                  Contact us on WhatsApp
+                </a>
+              </Button>
+            )}
             <Button asChild>
               <Link to="/orders">View my orders</Link>
             </Button>
