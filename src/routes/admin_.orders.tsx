@@ -6,6 +6,7 @@ import {
   ChevronLeft,
   ChevronRight,
   ClipboardList,
+  Download,
   LoaderCircle,
   MessageSquareText,
   Package,
@@ -14,13 +15,25 @@ import {
   ShieldCheck,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { pageHead } from "@/lib/api/storefront";
+import {
+  authFetch,
+  getAuthSession,
+  setCurrentAuthUser,
+  signOut as endSession,
+} from "@/lib/api/auth";
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:5000";
-
-type Session = {
-  access_token: string;
-};
+type AdminSession = true;
 
 type OrderItem = {
   id: string;
@@ -72,6 +85,8 @@ type Order = {
   manual_payment_reference_submitted_at: string | null;
   payment_verified_at: string | null;
   payment_verified_by: string | null;
+  cod_paid_at: string | null;
+  cod_payment_confirmed_by: string | null;
   shipment_created_at: string | null;
   shipment_updated_at: string | null;
   items?: OrderItem[];
@@ -231,33 +246,38 @@ function AdminOrdersPage() {
   const [fulfillmentMessage, setFulfillmentMessage] = useState("");
   const [savingPaymentVerification, setSavingPaymentVerification] = useState(false);
   const [paymentVerificationMessage, setPaymentVerificationMessage] = useState("");
+  const [codConfirmationOpen, setCodConfirmationOpen] = useState(false);
+  const [savingCodPayment, setSavingCodPayment] = useState(false);
+  const [codPaymentMessage, setCodPaymentMessage] = useState("");
+  const [exporting, setExporting] = useState(false);
 
   useEffect(() => {
-    try {
-      const saved = localStorage.getItem("bhasi-auth-session");
-
-      if (saved) {
-        const parsed = JSON.parse(saved) as Partial<Session>;
-
-        if (typeof parsed.access_token === "string" && parsed.access_token.length > 0) {
-          setSession({ access_token: parsed.access_token });
+    let active = true;
+    void getAuthSession()
+      .then((user) => {
+        if (active && user) setSession(true);
+        if (active) setSessionChecked(true);
+      })
+      .catch((reason: unknown) => {
+        if (active) {
+          setError(
+            reason instanceof Error ? reason.message : "Unable to verify your sign-in session.",
+          );
+          setSessionChecked(true);
         }
-      }
-    } catch {
-      setError("The saved login session could not be read. Please log in again.");
-    } finally {
-      setSessionChecked(true);
-    }
+      });
+    return () => {
+      active = false;
+    };
   }, []);
 
   async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
-    if (!session?.access_token) {
+    if (!session) {
       throw new Error("Your session is missing. Please log in again.");
     }
 
-    const response = await fetch(`${API_BASE_URL}${path}`, {
+    const response = await authFetch(path, {
       headers: {
-        Authorization: `Bearer ${session.access_token}`,
         ...(init.body ? { "Content-Type": "application/json" } : {}),
         ...init.headers,
       },
@@ -338,6 +358,8 @@ function AdminOrdersPage() {
       });
       setFulfillmentMessage("");
       setPaymentVerificationMessage("");
+      setCodPaymentMessage("");
+      setCodConfirmationOpen(false);
       setConfirmHandover(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to load order details.");
@@ -395,13 +417,70 @@ function AdminOrdersPage() {
     }
   }
 
+  async function confirmCodPayment() {
+    if (!selectedOrder || savingCodPayment) return;
+    setSavingCodPayment(true);
+    setError("");
+    setCodPaymentMessage("");
+    try {
+      const result = await request<ApiResponse>(
+        `/api/admin/orders/${encodeURIComponent(selectedOrder.id)}/cod-payment/confirm`,
+        { method: "PATCH" },
+      );
+      if (!result.order) throw new Error("The server did not confirm COD payment collection.");
+      setSelectedOrder((current) => (current ? { ...current, ...result.order } : current));
+      setCodPaymentMessage("COD payment recorded as collected.");
+      setCodConfirmationOpen(false);
+      void loadOrders(page);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to record COD payment collection.");
+    } finally {
+      setSavingCodPayment(false);
+    }
+  }
+
+  async function exportOrders() {
+    if (!session || exporting) return;
+    setExporting(true);
+    setError("");
+    try {
+      const params = new URLSearchParams();
+      if (search) params.set("search", search);
+      if (status) params.set("status", status);
+      if (paymentStatus) params.set("payment_status", paymentStatus);
+      const response = await authFetch(`/api/admin/orders/export?${params.toString()}`, {});
+      if (!response.ok) {
+        const result = (await response.json().catch(() => null)) as ApiResponse | null;
+        if (response.status === 403) setForbidden(true);
+        throw new Error(result?.message || "Unable to export orders.");
+      }
+      const blob = await response.blob();
+      const disposition = response.headers.get("Content-Disposition") || "";
+      const filename =
+        /filename="?([^";]+)"?/i.exec(disposition)?.[1] ||
+        `bhasi-gift-studio-orders-${new Date().toISOString().slice(0, 10)}.csv`;
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to export orders.");
+    } finally {
+      setExporting(false);
+    }
+  }
+
   useEffect(() => {
     if (session) void loadOrders(1);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session, search, status, paymentStatus]);
 
   function logout() {
-    localStorage.removeItem("bhasi-auth-session");
+    void endSession();
     window.location.assign("/login");
   }
 
@@ -463,6 +542,35 @@ function AdminOrdersPage() {
       </header>
 
       <main className="space-y-6 p-4 md:p-8">
+        <AlertDialog
+          open={codConfirmationOpen}
+          onOpenChange={(open) => {
+            if (!savingCodPayment) setCodConfirmationOpen(open);
+          }}
+        >
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Record COD payment as collected?</AlertDialogTitle>
+              <AlertDialogDescription>
+                This records that cash payment for {selectedOrder?.order_number || "this order"} was
+                physically received. It marks the payment paid and cannot be undone through the
+                application.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel disabled={savingCodPayment}>Cancel</AlertDialogCancel>
+              <AlertDialogAction
+                disabled={savingCodPayment}
+                onClick={(event) => {
+                  event.preventDefault();
+                  void confirmCodPayment();
+                }}
+              >
+                {savingCodPayment ? "Recording…" : "Confirm payment collected"}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
         {error && (
           <div
             role="alert"
@@ -552,6 +660,35 @@ function AdminOrdersPage() {
                 {selectedOrder.payment_verified_at && (
                   <p className="mt-3 text-sm font-medium text-emerald-800">
                     Verified {date(selectedOrder.payment_verified_at)}
+                  </p>
+                )}
+              </section>
+            )}
+
+            {selectedOrder.payment_method === "cash_on_delivery" && (
+              <section className="rounded-xl border border-amber-200 bg-amber-50 p-5">
+                <h3 className="font-semibold text-amber-950">Cash on Delivery collection</h3>
+                <p className="mt-1 text-sm text-amber-900">
+                  Mark this payment paid only after cash has been physically received from the
+                  customer. Delivery status never records payment automatically.
+                </p>
+                {codPaymentMessage && (
+                  <p role="status" className="mt-3 text-sm font-medium text-emerald-800">
+                    {codPaymentMessage}
+                  </p>
+                )}
+                {selectedOrder.payment_status === "unpaid" ? (
+                  <Button
+                    className="mt-4"
+                    disabled={savingCodPayment}
+                    onClick={() => setCodConfirmationOpen(true)}
+                  >
+                    {savingCodPayment ? "Recording…" : "Mark as Paid"}
+                  </Button>
+                ) : (
+                  <p className="mt-3 text-sm font-medium text-emerald-800">
+                    Payment recorded as collected
+                    {selectedOrder.cod_paid_at ? ` on ${date(selectedOrder.cod_paid_at)}` : ""}.
                   </p>
                 )}
               </section>
@@ -958,7 +1095,7 @@ function AdminOrdersPage() {
               <div className="border-b p-5">
                 <h2 className="text-lg font-bold">All orders</h2>
                 <form
-                  className="mt-4 grid gap-3 md:grid-cols-[minmax(0,1fr)_190px_190px_auto]"
+                  className="mt-4 grid gap-3 md:grid-cols-[minmax(0,1fr)_190px_190px_auto_auto]"
                   onSubmit={(event) => {
                     event.preventDefault();
                     setPage(1);
@@ -1015,6 +1152,15 @@ function AdminOrdersPage() {
                     <Search size={16} />
                     Search
                   </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    disabled={exporting}
+                    onClick={() => void exportOrders()}
+                  >
+                    <Download size={16} className={exporting ? "animate-pulse" : ""} />
+                    {exporting ? "Preparing CSV…" : "Export Orders CSV"}
+                  </Button>
                 </form>
               </div>
 
@@ -1032,54 +1178,84 @@ function AdminOrdersPage() {
                   </p>
                 </div>
               ) : (
-                <div className="overflow-x-auto">
-                  <table className="w-full min-w-[760px] text-left text-sm">
-                    <thead className="bg-stone-50 text-xs uppercase text-stone-500">
-                      <tr>
-                        <th className="px-5 py-4">Order</th>
-                        <th className="px-5 py-4">Date</th>
-                        <th className="px-5 py-4">Order status</th>
-                        <th className="px-5 py-4">Payment</th>
-                        <th className="px-5 py-4 text-right">Total</th>
-                        <th className="px-5 py-4">Details</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y">
-                      {orders.map((order) => (
-                        <tr key={order.id} className="hover:bg-rose-50/30">
-                          <td className="px-5 py-4 font-semibold">{order.order_number}</td>
-                          <td className="px-5 py-4 text-stone-500">{date(order.created_at)}</td>
-                          <td className="px-5 py-4">
-                            <span
-                              className={`rounded-full px-2.5 py-1 text-xs font-semibold ${badgeClass(order.status)}`}
-                            >
-                              {order.status}
-                            </span>
-                          </td>
-                          <td className="px-5 py-4">
-                            <span
-                              className={`rounded-full px-2.5 py-1 text-xs font-semibold ${badgeClass(order.payment_status)}`}
-                            >
-                              {order.payment_status} · {order.payment_method.replaceAll("_", " ")}
-                            </span>
-                          </td>
-                          <td className="px-5 py-4 text-right font-semibold">
-                            {money(order.total_amount)}
-                          </td>
-                          <td className="px-5 py-4">
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              onClick={() => void openOrder(order.id)}
-                            >
-                              View order
-                            </Button>
-                          </td>
+                <>
+                  <div className="mobile-order-cards md:hidden">
+                    {orders.map((order) => (
+                      <article key={order.id} className="mobile-order-card">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <h3 className="break-words font-semibold">{order.order_number}</h3>
+                            <p className="mt-1 text-xs text-stone-500">{date(order.created_at)}</p>
+                          </div>
+                          <strong className="shrink-0 text-sm">{money(order.total_amount)}</strong>
+                        </div>
+                        <dl>
+                          <dt>Order status</dt>
+                          <dd className="capitalize">{order.status}</dd>
+                          <dt>Payment</dt>
+                          <dd className="capitalize">
+                            {order.payment_status} · {order.payment_method.replaceAll("_", " ")}
+                          </dd>
+                        </dl>
+                        <Button
+                          variant="outline"
+                          className="min-h-11 w-full"
+                          onClick={() => void openOrder(order.id)}
+                        >
+                          View order
+                        </Button>
+                      </article>
+                    ))}
+                  </div>
+                  <div className="hidden overflow-x-auto md:block">
+                    <table className="w-full min-w-[760px] text-left text-sm">
+                      <thead className="bg-stone-50 text-xs uppercase text-stone-500">
+                        <tr>
+                          <th className="px-5 py-4">Order</th>
+                          <th className="px-5 py-4">Date</th>
+                          <th className="px-5 py-4">Order status</th>
+                          <th className="px-5 py-4">Payment</th>
+                          <th className="px-5 py-4 text-right">Total</th>
+                          <th className="px-5 py-4">Details</th>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+                      </thead>
+                      <tbody className="divide-y">
+                        {orders.map((order) => (
+                          <tr key={order.id} className="hover:bg-rose-50/30">
+                            <td className="px-5 py-4 font-semibold">{order.order_number}</td>
+                            <td className="px-5 py-4 text-stone-500">{date(order.created_at)}</td>
+                            <td className="px-5 py-4">
+                              <span
+                                className={`rounded-full px-2.5 py-1 text-xs font-semibold ${badgeClass(order.status)}`}
+                              >
+                                {order.status}
+                              </span>
+                            </td>
+                            <td className="px-5 py-4">
+                              <span
+                                className={`rounded-full px-2.5 py-1 text-xs font-semibold ${badgeClass(order.payment_status)}`}
+                              >
+                                {order.payment_status} · {order.payment_method.replaceAll("_", " ")}
+                              </span>
+                            </td>
+                            <td className="px-5 py-4 text-right font-semibold">
+                              {money(order.total_amount)}
+                            </td>
+                            <td className="px-5 py-4">
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => void openOrder(order.id)}
+                              >
+                                View order
+                              </Button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </>
               )}
 
               <div className="flex flex-wrap items-center justify-between gap-3 border-t p-4">

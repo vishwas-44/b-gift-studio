@@ -4,6 +4,7 @@ const express = require("express");
 const cors = require("cors");
 const rateLimit = require("express-rate-limit");
 const ordersRouter = require("./routes/orders");
+const requireTrustedOrigin = require("./middleware/requireTrustedOrigin");
 
 const productsRouter = require("./routes/products");
 const authRouter = require("./routes/auth");
@@ -14,6 +15,7 @@ const adminOrdersRouter = require("./routes/adminOrders");
 const adminFeedbackRouter = require("./routes/adminFeedback");
 const designAssetsRouter = require("./routes/designAssets");
 const analyticsRouter = require("./routes/analytics");
+const reportsRouter = require("./routes/reports");
 const aiRouter = require("./routes/ai");
 const razorpayWebhookRouter = require("./routes/razorpayWebhook");
 const app = express();
@@ -56,8 +58,11 @@ app.use((req, res, next) => {
 app.use(
   cors({
     origin: allowedFrontendOrigin,
+    credentials: true,
   }),
 );
+
+app.use(requireTrustedOrigin(allowedFrontendOrigin));
 
 // Razorpay signs the exact raw request bytes, so mount this before express.json().
 app.use("/api/webhooks/razorpay", razorpayWebhookRouter);
@@ -92,6 +97,7 @@ app.use("/api/admin/feedback", adminFeedbackRouter);
 app.use("/api/admin/customers", adminCustomersRouter);
 app.use("/api/design-assets", designAssetsRouter);
 app.use("/api/analytics", analyticsRouter);
+app.use("/api/admin/reports", reportsRouter);
 app.use("/api/ai", aiRouter);
 
 app.use((req, res) => {

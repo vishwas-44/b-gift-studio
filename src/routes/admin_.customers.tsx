@@ -18,8 +18,12 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { pageHead } from "@/lib/api/storefront";
-
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:5000";
+import {
+  authFetch,
+  getAuthSession,
+  setCurrentAuthUser,
+  signOut as endSession,
+} from "@/lib/api/auth";
 
 type Customer = {
   id: string;
@@ -41,9 +45,8 @@ type CustomerResponse = {
   };
 };
 
-type AdminSession = {
-  access_token: string;
-};
+type AdminSession = true;
+type Session = true;
 
 export const Route = createFileRoute("/admin_/customers")({
   head: () => pageHead("Customers", "Manage Bhasi Gift Studio customer records."),
@@ -76,25 +79,27 @@ function AdminCustomersPage() {
   const [forbidden, setForbidden] = useState(false);
 
   useEffect(() => {
-    try {
-      const saved = localStorage.getItem("bhasi-auth-session");
-
-      if (saved) {
-        const parsed = JSON.parse(saved) as Partial<AdminSession>;
-
-        if (typeof parsed.access_token === "string" && parsed.access_token.length > 0) {
-          setSession({ access_token: parsed.access_token });
+    let active = true;
+    void getAuthSession()
+      .then((user) => {
+        if (active && user) setSession(true);
+        if (active) setSessionChecked(true);
+      })
+      .catch((reason: unknown) => {
+        if (active) {
+          setError(
+            reason instanceof Error ? reason.message : "Unable to verify your sign-in session.",
+          );
+          setSessionChecked(true);
         }
-      }
-    } catch {
-      setError("Your saved login session could not be read. Please log in again.");
-    } finally {
-      setSessionChecked(true);
-    }
+      });
+    return () => {
+      active = false;
+    };
   }, []);
 
   async function loadCustomers(currentPage = page, currentSearch = search) {
-    if (!session?.access_token) return;
+    if (!session) return;
 
     setLoading(true);
     setError("");
@@ -110,11 +115,7 @@ function AdminCustomersPage() {
     }
 
     try {
-      const response = await fetch(`${API_BASE_URL}/api/admin/customers?${params.toString()}`, {
-        headers: {
-          Authorization: `Bearer ${session.access_token}`,
-        },
-      });
+      const response = await authFetch(`/api/admin/customers?${params.toString()}`, {});
 
       const result = (await response.json()) as CustomerResponse;
 
@@ -150,8 +151,8 @@ function AdminCustomersPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session, search]);
 
-  function logout() {
-    localStorage.removeItem("bhasi-auth-session");
+  async function logout() {
+    await endSession();
     window.location.assign("/login");
   }
 
@@ -334,7 +335,44 @@ function AdminCustomersPage() {
               </div>
             )}
 
-            <div className="overflow-x-auto">
+            {!loading && customers.length > 0 && (
+              <div className="mobile-order-cards p-4 md:hidden">
+                {customers.map((customer) => (
+                  <article key={customer.id} className="mobile-order-card">
+                    <div className="min-w-0">
+                      <h2 className="break-words font-semibold">
+                        {customer.full_name?.trim() || "Unnamed customer"}
+                      </h2>
+                      <p className="mt-1 break-all text-xs text-stone-500">{customer.id}</p>
+                    </div>
+                    <dl>
+                      <dt>Phone</dt>
+                      <dd>{customer.phone || "Not provided"}</dd>
+                      <dt>Registered</dt>
+                      <dd>{formatDate(customer.created_at)}</dd>
+                      <dt>Orders</dt>
+                      <dd>{customer.order_count}</dd>
+                    </dl>
+                  </article>
+                ))}
+              </div>
+            )}
+            {(loading || customers.length === 0) && (
+              <div className="p-10 text-center md:hidden">
+                {loading ? (
+                  <>
+                    <LoaderCircle className="mx-auto animate-spin text-rose-500" />
+                    <p className="mt-3 text-sm text-stone-500">Loading customers…</p>
+                  </>
+                ) : (
+                  <>
+                    <Users className="mx-auto text-stone-300" size={32} />
+                    <p className="mt-3 font-medium">No customers found</p>
+                  </>
+                )}
+              </div>
+            )}
+            <div className="hidden overflow-x-auto md:block">
               <table className="w-full min-w-[720px] text-left text-sm">
                 <thead className="bg-stone-50 text-xs uppercase tracking-wide text-stone-500">
                   <tr>

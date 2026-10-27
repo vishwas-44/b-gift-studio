@@ -14,15 +14,9 @@ import {
 
 import { Button } from "@/components/ui/button";
 import { pageHead } from "@/lib/api/storefront";
+import { authFetch, getAuthSession, signOut } from "@/lib/api/auth";
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:5000";
-
-const SESSION_KEY = "bhasi-auth-session";
-
-type Session = {
-  access_token: string;
-  refresh_token?: string;
-};
+type Session = true;
 
 type Profile = {
   id: string;
@@ -63,16 +57,13 @@ export const Route = createFileRoute("/account")({
 
 async function apiRequest<T extends ApiResult>(
   path: string,
-  token: string,
   options: RequestInit = {},
 ): Promise<T> {
   let response: Response;
-
   try {
-    response = await fetch(`${API_BASE_URL}${path}`, {
+    response = await authFetch(path, {
       ...options,
       headers: {
-        Authorization: `Bearer ${token}`,
         ...(options.body ? { "Content-Type": "application/json" } : {}),
         ...options.headers,
       },
@@ -82,21 +73,16 @@ async function apiRequest<T extends ApiResult>(
       "Cannot connect to the backend. Make sure the backend server is running on port 5000.",
     );
   }
-
   const responseText = await response.text();
-
   let result: T;
-
   try {
     result = JSON.parse(responseText) as T;
   } catch {
     throw new Error(`The backend returned an invalid response (HTTP ${response.status}).`);
   }
-
   if (!response.ok || !result.success) {
     throw new Error(result.message || `Request failed (HTTP ${response.status}).`);
   }
-
   return result;
 }
 
@@ -123,85 +109,43 @@ function Account() {
 
   useEffect(() => {
     let active = true;
-
     async function initialise() {
       try {
-        const stored = localStorage.getItem(SESSION_KEY);
-
-        if (!stored) {
-          if (active) {
-            setError("Please log in to view your personal account.");
-          }
+        const user = await getAuthSession();
+        if (!user) {
+          if (active) setError("Please log in to view your personal account.");
           return;
         }
-
-        let parsed: Session;
-
-        try {
-          parsed = JSON.parse(stored) as Session;
-        } catch {
-          localStorage.removeItem(SESSION_KEY);
-          if (active) {
-            setError("Your saved session is invalid. Please log in again.");
-          }
-          return;
-        }
-
-        if (!parsed.access_token) {
-          localStorage.removeItem(SESSION_KEY);
-          if (active) {
-            setError("Your session is invalid. Please log in again.");
-          }
-          return;
-        }
-
         if (active) {
-          setSession(parsed);
+          setSession(true);
           setError("");
         }
-
         const [profileResult, designsResult] = await Promise.all([
-          apiRequest<{
-            success: boolean;
-            profile: Profile;
-          }>("/api/account/profile", parsed.access_token),
-
-          apiRequest<{
-            success: boolean;
-            designs: SavedDesign[];
-          }>("/api/account/designs", parsed.access_token),
+          apiRequest<{ success: boolean; profile: Profile }>("/api/account/profile"),
+          apiRequest<{ success: boolean; designs: SavedDesign[] }>("/api/account/designs"),
         ]);
-
         if (!active) return;
-
         setProfile(profileResult.profile);
         setFullName(profileResult.profile.full_name || "");
         setPhone(profileResult.profile.phone || "");
         setDesigns(designsResult.designs || []);
-        void loadFeedback(parsed.access_token);
+        void loadFeedback();
       } catch (err) {
-        if (active) {
-          setError(err instanceof Error ? err.message : "Unable to load your account.");
-        }
+        if (active) setError(err instanceof Error ? err.message : "Unable to load your account.");
       } finally {
-        if (active) {
-          setLoading(false);
-        }
+        if (active) setLoading(false);
       }
     }
-
     void initialise();
-
     return () => {
       active = false;
     };
   }, []);
 
-  async function loadFeedback(accessToken: string) {
+  async function loadFeedback() {
     try {
       const result = await apiRequest<{ success: boolean; feedback: Feedback[] }>(
         "/api/account/feedback",
-        accessToken,
       );
       setFeedback(result.feedback || []);
       setFeedbackError("");
@@ -212,14 +156,13 @@ function Account() {
 
   async function submitFeedback(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!session?.access_token) return;
+    if (!session) return;
     setFeedbackSaving(true);
     setFeedbackError("");
     setFeedbackSuccess("");
     try {
       const result = await apiRequest<{ success: boolean; feedback: Feedback }>(
         "/api/account/feedback",
-        session.access_token,
         {
           method: "POST",
           body: JSON.stringify({
@@ -242,7 +185,7 @@ function Account() {
   async function saveProfile(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
-    if (!session?.access_token) {
+    if (!session) {
       setError("Please log in again to update your profile.");
       return;
     }
@@ -264,7 +207,7 @@ function Account() {
         success: boolean;
         message: string;
         profile: Profile;
-      }>("/api/account/profile", session.access_token, {
+      }>("/api/account/profile", {
         method: "PATCH",
         body: JSON.stringify({
           fullName: trimmedName,
@@ -287,7 +230,7 @@ function Account() {
   }
 
   async function refreshDesigns() {
-    if (!session?.access_token) {
+    if (!session) {
       setError("Please log in again to view your saved designs.");
       return;
     }
@@ -300,7 +243,7 @@ function Account() {
       const result = await apiRequest<{
         success: boolean;
         designs: SavedDesign[];
-      }>("/api/account/designs", session.access_token);
+      }>("/api/account/designs");
 
       setDesigns(result.designs || []);
       setMessage("Saved designs refreshed.");
@@ -311,8 +254,8 @@ function Account() {
     }
   }
 
-  function logout() {
-    localStorage.removeItem(SESSION_KEY);
+  async function logout() {
+    await signOut();
     setSession(null);
     setProfile(null);
     setDesigns([]);

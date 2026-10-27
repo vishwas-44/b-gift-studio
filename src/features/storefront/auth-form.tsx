@@ -2,22 +2,16 @@ import { useState, type FormEvent } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { ArrowRight, Heart, Mail, ArrowLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
-
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:5000";
+import { PasswordField } from "@/components/ui/password-field";
+import { authFetch, setCurrentAuthUser, signOut } from "@/lib/api/auth";
 
 type AuthResponse = {
   success: boolean;
   message?: string;
+  authenticated?: boolean;
   user?: {
     id: string;
     email?: string;
-  } | null;
-  session?: {
-    access_token: string;
-    refresh_token: string;
-    expires_at?: number;
-    expires_in?: number;
-    token_type?: string;
   } | null;
 };
 
@@ -34,7 +28,7 @@ export function AuthForm({ signup = false }: { signup?: boolean }) {
   const [message, setMessage] = useState("");
 
   async function postAuth(endpoint: string, body: Record<string, string>): Promise<AuthResponse> {
-    const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+    const response = await authFetch(endpoint, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
@@ -47,10 +41,6 @@ export function AuthForm({ signup = false }: { signup?: boolean }) {
     }
 
     return result;
-  }
-
-  function saveSession(session: NonNullable<AuthResponse["session"]>) {
-    localStorage.setItem("bhasi-auth-session", JSON.stringify(session));
   }
 
   async function submit(event: FormEvent<HTMLFormElement>) {
@@ -80,8 +70,8 @@ export function AuthForm({ signup = false }: { signup?: boolean }) {
           otp: otp.trim(),
         });
 
-        if (result.session?.access_token) {
-          saveSession(result.session);
+        if (result.authenticated && result.user?.id) {
+          setCurrentAuthUser(result.user);
           setPassword("");
           setOtp("");
           await navigate({ to: "/account" });
@@ -100,19 +90,15 @@ export function AuthForm({ signup = false }: { signup?: boolean }) {
         password,
       });
 
-      if (!result.session?.access_token) {
+      if (!result.authenticated || !result.user?.id) {
         throw new Error("Login succeeded without a session. Please try again.");
       }
 
-      saveSession(result.session);
+      setCurrentAuthUser(result.user);
       setPassword("");
 
       try {
-        const profileResponse = await fetch(`${API_BASE_URL}/api/account/profile`, {
-          headers: {
-            Authorization: `Bearer ${result.session.access_token}`,
-          },
-        });
+        const profileResponse = await authFetch("/api/account/profile");
 
         const profileResult = await profileResponse.json();
 
@@ -126,7 +112,7 @@ export function AuthForm({ signup = false }: { signup?: boolean }) {
           await navigate({ to: "/account" });
         }
       } catch (error) {
-        localStorage.removeItem("bhasi-auth-session");
+        await signOut();
         throw error;
       }
     } catch (err: unknown) {
@@ -205,20 +191,18 @@ export function AuthForm({ signup = false }: { signup?: boolean }) {
         </label>
 
         {(!signup || !otpStage) && (
-          <label className="field">
-            Password
-            <input
-              type="password"
-              name="password"
-              autoComplete={signup ? "new-password" : "current-password"}
-              placeholder={signup ? "At least 8 characters" : "Enter your password"}
-              minLength={signup ? 8 : undefined}
-              maxLength={128}
-              value={password}
-              onChange={(event) => setPassword(event.target.value)}
-              required
-            />
-          </label>
+          <PasswordField
+            id="auth-password"
+            label="Password"
+            name="password"
+            autoComplete={signup ? "new-password" : "current-password"}
+            placeholder={signup ? "At least 8 characters" : "Enter your password"}
+            minLength={signup ? 8 : undefined}
+            maxLength={128}
+            value={password}
+            onChange={(event) => setPassword(event.target.value)}
+            required
+          />
         )}
 
         {!signup && (

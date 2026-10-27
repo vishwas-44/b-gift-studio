@@ -3,6 +3,7 @@ const supabaseAdmin = require("../supabaseAdmin");
 const requireAuth = require("../middleware/requireAuth");
 const { canonicalVariant } = require("../services/productVariants");
 const { credentials, razorpayRequest, verifyPaymentSignature } = require("../services/razorpay");
+const { notifyNewOrder } = require("../services/adminNotifications");
 
 const router = express.Router();
 router.use(requireAuth);
@@ -57,6 +58,37 @@ function sendMigrationMessage(res) {
     message:
       "Checkout database setup is incomplete. Apply supabase/migrations/20261018000000_orders_checkout.sql in the Supabase SQL Editor, then retry.",
   });
+}
+
+async function notifyPersistedOrder(order, customerEmail) {
+  try {
+    const [orderResult, itemsResult] = await Promise.all([
+      supabaseAdmin
+        .from("orders")
+        .select(
+          "id, order_number, status, payment_status, payment_method, total_amount, currency, shipping_address, created_at",
+        )
+        .eq("id", order.id)
+        .maybeSingle(),
+      supabaseAdmin
+        .from("order_items")
+        .select("product_name, variant, quantity, unit_price")
+        .eq("order_id", order.id)
+        .order("created_at", { ascending: true }),
+    ]);
+    if (orderResult.error || itemsResult.error || !orderResult.data) {
+      console.error("Admin order notification data lookup failed.");
+      return;
+    }
+    await notifyNewOrder({
+      order: orderResult.data,
+      customerEmail,
+      items: itemsResult.data || [],
+    });
+  } catch (error) {
+    // Notification errors must never change a persisted order response.
+    console.error("Admin order notification preparation failed:", error.message);
+  }
 }
 
 function cleanAddress(value) {
@@ -292,6 +324,7 @@ router.post("/", async (req, res, next) => {
             "Payment setup is incomplete. Apply the Razorpay checkout migration, then retry.",
         });
       }
+      await notifyPersistedOrder(savedOrder, req.user.email);
       return res.status(201).json({
         success: true,
         order: savedOrder,
@@ -314,6 +347,7 @@ router.post("/", async (req, res, next) => {
         )
         .single();
       if (codError) return next(codError);
+      await notifyPersistedOrder(codOrder, req.user.email);
       return res.status(201).json({
         success: true,
         message: "Order placed. Payment is due on delivery.",
@@ -331,6 +365,7 @@ router.post("/", async (req, res, next) => {
         )
         .single();
       if (upiError) return next(upiError);
+      await notifyPersistedOrder(upiOrder, req.user.email);
       return res.status(201).json({
         success: true,
         message: "Order created. Payment remains pending manual verification.",

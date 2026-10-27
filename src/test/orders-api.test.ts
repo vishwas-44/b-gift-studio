@@ -1,4 +1,4 @@
-﻿import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { createOrder, type DeliveryAddress } from "@/lib/api/orders";
 
 const address: DeliveryAddress = {
@@ -26,12 +26,6 @@ const order = {
   created_at: "2026-10-18T00:00:00.000Z",
 };
 
-beforeEach(() => {
-  localStorage.setItem(
-    "bhasi-auth-session",
-    JSON.stringify({ access_token: "valid-test-session" }),
-  );
-});
 afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
@@ -75,12 +69,20 @@ describe("checkout API client", () => {
     );
   });
 
-  it("rejects unauthenticated checkout before making a request", async () => {
-    localStorage.clear();
-    const fetchMock = vi.fn();
+  it("sends checkout requests with cookies and without bearer tokens", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ success: false, message: "Authentication required." }), {
+        status: 401,
+      }),
+    );
     vi.stubGlobal("fetch", fetchMock);
-    await expect(createOrder({ shippingAddress: address, items: [] })).rejects.toThrow("Sign in");
-    expect(fetchMock).not.toHaveBeenCalled();
+    await expect(createOrder({ shippingAddress: address, items: [] })).rejects.toThrow(
+      "Authentication required.",
+    );
+    expect(fetchMock).toHaveBeenCalledOnce();
+    const request = fetchMock.mock.calls[0][1] as RequestInit;
+    expect(request.credentials).toBe("include");
+    expect(new Headers(request.headers).has("Authorization")).toBe(false);
   });
 
   it("does not treat a failed submission as an order confirmation", async () => {

@@ -2,6 +2,8 @@ const express = require("express");
 const supabaseAdmin = require("../supabaseAdmin");
 const requireAdmin = require("../middleware/requireAdmin");
 const { isSafeTrackingUrl, isValidShipmentDate } = require("../services/shipmentValidation");
+const { confirmCodPayment } = require("../services/codPayment");
+const { toCsv } = require("../services/csvExport");
 
 const router = express.Router();
 
@@ -11,6 +13,34 @@ const SHIPMENT_FIELDS =
 const MANUAL_PAYMENT_FIELDS =
   "manual_payment_reference, manual_payment_reference_submitted_at, payment_verified_at, payment_verified_by";
 const DESIGN_ASSETS_BUCKET = "customer-design-assets";
+const EXPORT_PAGE_SIZE = 500;
+const EXPORT_MAX_ORDERS = 20000;
+const EXPORT_ORDER_FIELDS =
+  "id, order_number, user_id, status, payment_status, payment_method, subtotal, shipping_fee, tax_amount, total_amount, currency, shipping_address, created_at, courier_company, custom_courier_name, tracking_id, shipment_date, payment_verified_at";
+
+function exportAddress(address) {
+  if (!address || typeof address !== "object") return "";
+  return [
+    address.addressLine1,
+    address.addressLine2,
+    address.city,
+    address.state,
+    address.postalCode,
+    address.country,
+  ]
+    .filter(Boolean)
+    .join(", ");
+}
+
+function applyOrderFilters(query, { search, status, paymentStatus }) {
+  if (search) {
+    const safeSearch = search.replace(/[\\%_(),."]/g, "");
+    if (safeSearch) query = query.ilike("order_number", `%${safeSearch}%`);
+  }
+  if (status) query = query.eq("status", status);
+  if (paymentStatus) query = query.eq("payment_status", paymentStatus);
+  return query;
+}
 
 async function attachArtworkLinks(item, userId) {
   const designData = item.customization_snapshot?.designData;
@@ -99,21 +129,7 @@ router.get("/", async (req, res, next) => {
       .order("created_at", { ascending: false })
       .range(from, to);
 
-    if (search) {
-      // Escape characters that have special meaning in PostgREST filters.
-      const safeSearch = search.replace(/[\\%_(),."]/g, "");
-      if (safeSearch) {
-        query = query.ilike("order_number", `%${safeSearch}%`);
-      }
-    }
-
-    if (status) {
-      query = query.eq("status", status);
-    }
-
-    if (paymentStatus) {
-      query = query.eq("payment_status", paymentStatus);
-    }
+    query = applyOrderFilters(query, { search, status, paymentStatus });
 
     const { data, error, count } = await query;
 
@@ -137,6 +153,170 @@ router.get("/", async (req, res, next) => {
     });
   } catch (error) {
     next(error);
+  }
+});
+
+// GET /api/admin/orders/export?search=&status=&payment_status=
+// Exports every matching order (not only the active page) after the admin middleware above.
+router.get("/export", async (req, res, next) => {
+  try {
+    const search = typeof req.query.search === "string" ? req.query.search.trim() : "";
+    const status = typeof req.query.status === "string" ? req.query.status.trim() : "";
+    const paymentStatus =
+      typeof req.query.payment_status === "string" ? req.query.payment_status.trim() : "";
+    if (search.length > 100 || status.length > 50 || paymentStatus.length > 50) {
+      return res
+        .status(400)
+        .json({ success: false, message: "A search or filter value is too long." });
+    }
+
+    let countQuery = supabaseAdmin.from("orders").select("id", { count: "exact", head: true });
+    countQuery = applyOrderFilters(countQuery, { search, status, paymentStatus });
+    const { count, error: countError } = await countQuery;
+    if (countError) throw countError;
+    if ((count || 0) > EXPORT_MAX_ORDERS) {
+      return res.status(413).json({
+        success: false,
+        message: `Export is limited to ${EXPORT_MAX_ORDERS.toLocaleString("en-IN")} matching orders. Narrow the filters and retry.`,
+      });
+    }
+
+    const orders = [];
+    for (let from = 0; from < (count || 0); from += EXPORT_PAGE_SIZE) {
+      let pageQuery = supabaseAdmin
+        .from("orders")
+        .select(EXPORT_ORDER_FIELDS)
+        .order("created_at", { ascending: false })
+        .range(from, Math.min(from + EXPORT_PAGE_SIZE - 1, (count || 0) - 1));
+      pageQuery = applyOrderFilters(pageQuery, { search, status, paymentStatus });
+      const { data, error } = await pageQuery;
+      if (error || !data) throw error || new Error("Export order query returned no data.");
+      orders.push(...data);
+    }
+
+    const orderIds = orders.map((order) => order.id);
+    const userIds = [...new Set(orders.map((order) => order.user_id))];
+    const items = [];
+    const profiles = [];
+    // Keep PostgREST `in` filters bounded as well as the primary order query.
+    for (let offset = 0; offset < orderIds.length; offset += EXPORT_PAGE_SIZE) {
+      const { data, error } = await supabaseAdmin
+        .from("order_items")
+        .select("order_id, product_name, variant, quantity, unit_price")
+        .in("order_id", orderIds.slice(offset, offset + EXPORT_PAGE_SIZE));
+      if (error) throw error;
+      items.push(...(data || []));
+    }
+    for (let offset = 0; offset < userIds.length; offset += EXPORT_PAGE_SIZE) {
+      const { data, error } = await supabaseAdmin
+        .from("profiles")
+        .select("id, full_name, phone")
+        .in("id", userIds.slice(offset, offset + EXPORT_PAGE_SIZE));
+      if (error) throw error;
+      profiles.push(...(data || []));
+    }
+
+    const itemsByOrder = new Map();
+    for (const item of items) {
+      const existing = itemsByOrder.get(item.order_id) || [];
+      existing.push(item);
+      itemsByOrder.set(item.order_id, existing);
+    }
+    const profilesById = new Map(profiles.map((profile) => [profile.id, profile]));
+    const headers = [
+      "Order Number",
+      "Order Date",
+      "Customer Name",
+      "Customer Phone",
+      "Shipping Address",
+      "Shipping PIN Code",
+      "Product Names",
+      "Product Variants",
+      "Item Quantities",
+      "Item Subtotals",
+      "Order Subtotal",
+      "Shipping Charge",
+      "Tax Amount",
+      "Final Order Total",
+      "Currency",
+      "Payment Method",
+      "Payment Status",
+      "Order Status",
+      "Courier Name",
+      "Tracking ID",
+      "Shipment Date",
+      "Created At",
+      "Payment Verified At",
+    ];
+    const rows = orders.map((order) => {
+      const items = itemsByOrder.get(order.id) || [];
+      const profile = profilesById.get(order.user_id);
+      const address = order.shipping_address || {};
+      return [
+        order.order_number,
+        order.created_at,
+        profile?.full_name || address.fullName || "",
+        profile?.phone || address.phone || "",
+        exportAddress(address),
+        address.postalCode || "",
+        items.map((item) => item.product_name).join(" | "),
+        items.map((item) => item.variant).join(" | "),
+        items.map((item) => item.quantity).join(" | "),
+        items.map((item) => (Number(item.unit_price) * item.quantity).toFixed(2)).join(" | "),
+        order.subtotal,
+        order.shipping_fee,
+        order.tax_amount,
+        order.total_amount,
+        order.currency,
+        order.payment_method,
+        order.payment_status,
+        order.status,
+        order.courier_company === "Other"
+          ? order.custom_courier_name || "Other"
+          : order.courier_company || "",
+        order.tracking_id,
+        order.shipment_date,
+        order.created_at,
+        order.payment_verified_at || "",
+      ];
+    });
+    const filenameDate = new Date().toISOString().slice(0, 10);
+    res.setHeader("Content-Type", "text/csv; charset=utf-8");
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename="bhasi-gift-studio-orders-${filenameDate}.csv"`,
+    );
+    return res.status(200).send(toCsv(headers, rows));
+  } catch (error) {
+    console.error("Order CSV export failed:", error.message);
+    return next(error);
+  }
+});
+
+// PATCH /api/admin/orders/:id/cod-payment/confirm
+// The database function locks the order and permits only the irreversible unpaid -> paid COD transition.
+router.patch("/:id/cod-payment/confirm", async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    if (!UUID_PATTERN.test(id)) {
+      return res.status(400).json({ success: false, message: "Invalid order ID." });
+    }
+    if (Object.keys(req.body || {}).length) {
+      return res.status(400).json({ success: false, message: "Unexpected COD payment field." });
+    }
+    const result = await confirmCodPayment(supabaseAdmin, id, req.user.id);
+    if (!result.ok) {
+      if (result.status === 500)
+        console.error("COD payment confirmation failed:", result.error?.message);
+      return res.status(result.status).json({ success: false, message: result.message });
+    }
+    return res.status(200).json({
+      success: true,
+      message: "COD payment recorded as collected.",
+      order: result.order,
+    });
+  } catch (error) {
+    return next(error);
   }
 });
 

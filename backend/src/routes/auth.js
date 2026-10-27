@@ -4,6 +4,13 @@ const rateLimit = require("express-rate-limit");
 
 const supabase = require("../supabase");
 const supabaseAdmin = require("../supabaseAdmin");
+const requireAuth = require("../middleware/requireAuth");
+const {
+  clearSessionCookies,
+  readCookie,
+  REFRESH_COOKIE,
+  setSessionCookies,
+} = require("../services/authCookies");
 const { sendEmail } = require("../services/mailer");
 
 const {
@@ -300,10 +307,11 @@ router.post("/signup/verify-otp", otpVerifyLimiter, async (req, res, next) => {
         success: true,
         message: "Email verified and account created. Please sign in.",
         user: { id: user.id, email: user.email },
-        session: null,
+        authenticated: false,
       });
     }
 
+    setSessionCookies(res, loginData.session);
     return res.status(201).json({
       success: true,
       message: "Email verified and account created successfully.",
@@ -311,7 +319,7 @@ router.post("/signup/verify-otp", otpVerifyLimiter, async (req, res, next) => {
         id: loginData.user.id,
         email: loginData.user.email,
       },
-      session: loginData.session,
+      authenticated: true,
     });
   } catch (error) {
     next(error);
@@ -345,13 +353,14 @@ router.post("/login", async (req, res, next) => {
       });
     }
 
+    setSessionCookies(res, data.session);
     return res.status(200).json({
       success: true,
       user: {
         id: data.user.id,
         email: data.user.email,
       },
-      session: data.session,
+      authenticated: true,
     });
   } catch (error) {
     next(error);
@@ -361,7 +370,7 @@ router.post("/login", async (req, res, next) => {
 // Refresh an expired access token using the customer's current refresh token.
 router.post("/refresh", async (req, res, next) => {
   try {
-    const refreshToken = req.body?.refresh_token;
+    const refreshToken = readCookie(req, REFRESH_COOKIE) || req.body?.refresh_token;
     if (typeof refreshToken !== "string" || !refreshToken.trim() || refreshToken.length > 4096) {
       return res
         .status(400)
@@ -375,7 +384,26 @@ router.post("/refresh", async (req, res, next) => {
         .json({ success: false, message: "Your sign-in session expired. Please sign in again." });
     }
 
-    return res.json({ success: true, session: data.session });
+    setSessionCookies(res, data.session);
+    return res.json({
+      success: true,
+      user: { id: data.user.id, email: data.user.email },
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.get("/session", requireAuth, (req, res) => {
+  return res.json({ success: true, user: req.user });
+});
+
+router.post("/logout", requireAuth, async (req, res, next) => {
+  try {
+    const { error } = await supabaseAdmin.auth.admin.signOut(req.authToken, "local");
+    if (error) throw error;
+    clearSessionCookies(res);
+    return res.json({ success: true });
   } catch (error) {
     next(error);
   }

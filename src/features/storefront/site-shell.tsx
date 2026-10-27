@@ -10,6 +10,7 @@ import {
   ShoppingBag,
   Sparkles,
   Sun,
+  ShieldCheck,
   UserRound,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -18,6 +19,7 @@ import { categories } from "@/data/catalogue";
 import { useStore } from "./store-context";
 import { CartContent } from "./cart-content";
 import { trackAnalyticsEvent } from "@/lib/api/analytics";
+import { authFetch, getAuthSession } from "@/lib/api/auth";
 
 export function Brand({ footer = false }: { footer?: boolean }) {
   return (
@@ -45,6 +47,7 @@ export function SiteShell({ children }: { children: ReactNode }) {
   const store = useStore();
   const [menu, setMenu] = useState(false);
   const [search, setSearch] = useState("");
+  const [isAdmin, setIsAdmin] = useState(false);
   const navigate = useNavigate();
 
   const pathname = useRouterState({
@@ -56,6 +59,35 @@ export function SiteShell({ children }: { children: ReactNode }) {
     trackAnalyticsEvent("page_view", pathname);
     if (/^\/products\/[^/]+$/.test(pathname)) trackAnalyticsEvent("product_view", pathname);
     if (pathname === "/checkout") trackAnalyticsEvent("checkout_started", pathname);
+  }, [pathname]);
+
+  useEffect(() => {
+    let active = true;
+    void getAuthSession()
+      .then((user) => {
+        if (!active) return;
+        if (!user) {
+          setIsAdmin(false);
+          return;
+        }
+        void authFetch("/api/account/profile")
+          .then(async (response) => {
+            const result = await response.json().catch(() => null);
+            if (active)
+              setIsAdmin(
+                Boolean(response.ok && result?.success && result.profile?.role === "admin"),
+              );
+          })
+          .catch(() => {
+            if (active) setIsAdmin(false);
+          });
+      })
+      .catch(() => {
+        if (active) setIsAdmin(false);
+      });
+    return () => {
+      active = false;
+    };
   }, [pathname]);
 
   // Admin pages have their own layout.
@@ -121,11 +153,26 @@ export function SiteShell({ children }: { children: ReactNode }) {
               {store.count > 0 && <span className="cart-count">{store.count}</span>}
             </Button>
 
+            {isAdmin && (
+              <Button
+                className="admin-shortcut"
+                variant="ghost"
+                size="icon"
+                asChild
+                title="Admin Studio"
+              >
+                <Link to="/admin" aria-label="Open Admin Studio">
+                  <ShieldCheck />
+                </Link>
+              </Button>
+            )}
+
             <Button
               className="mobile-menu-button"
               variant="ghost"
               size="icon"
-              aria-label="Open menu"
+              aria-label={menu ? "Close menu" : "Open menu"}
+              aria-expanded={menu}
               onClick={() => setMenu(true)}
             >
               <Menu />
@@ -237,7 +284,7 @@ export function SiteShell({ children }: { children: ReactNode }) {
       </Sheet>
 
       <Sheet open={menu} onOpenChange={setMenu}>
-        <SheetContent side="left">
+        <SheetContent side="left" className="mobile-menu-sheet">
           <SheetTitle>Bhasi Gift Studio</SheetTitle>
 
           <SheetDescription>Little things. Lasting memories.</SheetDescription>
@@ -288,6 +335,22 @@ export function SiteShell({ children }: { children: ReactNode }) {
               My account
               <UserRound size={16} />
             </Link>
+            <Button
+              type="button"
+              variant="ghost"
+              className="mobile-theme-toggle"
+              aria-label={store.dark ? "Switch to light theme" : "Switch to charcoal theme"}
+              onClick={store.toggleTheme}
+            >
+              {store.dark ? "Switch to light theme" : "Switch to charcoal theme"}
+              {store.dark ? <Sun size={16} /> : <Moon size={16} />}
+            </Button>
+            {isAdmin && (
+              <Link to="/admin" onClick={() => setMenu(false)}>
+                Admin Studio
+                <ShieldCheck size={16} />
+              </Link>
+            )}
           </nav>
         </SheetContent>
       </Sheet>

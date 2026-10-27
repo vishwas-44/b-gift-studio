@@ -3,6 +3,7 @@ const rateLimit = require("express-rate-limit");
 const supabaseAdmin = require("../supabaseAdmin");
 const requireAuth = require("../middleware/requireAuth");
 const { canonicalVariant } = require("../services/productVariants");
+const { notifyNewFeedback } = require("../services/adminNotifications");
 
 const router = express.Router();
 
@@ -438,6 +439,26 @@ router.post("/feedback", feedbackLimiter, async (req, res, next) => {
       .single();
 
     if (error) return next(error);
+    let customerName = "";
+    try {
+      const { data: profile } = await supabaseAdmin
+        .from("profiles")
+        .select("full_name")
+        .eq("id", req.user.id)
+        .maybeSingle();
+      customerName = profile?.full_name || "";
+    } catch {
+      // The feedback record is already persisted; a missing profile must not affect it.
+    }
+    try {
+      await notifyNewFeedback({
+        feedback: data,
+        customerName,
+        customerEmail: req.user.email,
+      });
+    } catch (notificationError) {
+      console.error("Admin feedback notification preparation failed:", notificationError.message);
+    }
     return res.status(201).json({ success: true, feedback: data });
   } catch (error) {
     return next(error);

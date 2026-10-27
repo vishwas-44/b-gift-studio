@@ -1,6 +1,13 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { ArrowLeft, CheckCircle2, LoaderCircle, QrCode, ShoppingBag } from "lucide-react";
+import {
+  ArrowLeft,
+  CheckCircle2,
+  LoaderCircle,
+  MessageCircle,
+  QrCode,
+  ShoppingBag,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useStore } from "@/features/storefront/store-context";
 import {
@@ -15,6 +22,7 @@ import {
   type CreatedOrder,
   type DeliveryAddress,
 } from "@/lib/api/orders";
+import { getAuthSession, setCurrentAuthUser } from "@/lib/api/auth";
 import { pageHead } from "@/lib/api/storefront";
 
 const blankAddress: DeliveryAddress = {
@@ -114,12 +122,18 @@ function Checkout() {
 
   useEffect(() => {
     let active = true;
-    try {
-      const session = JSON.parse(localStorage.getItem("bhasi-auth-session") || "null");
-      setSignedIn(typeof session?.access_token === "string" && session.access_token.length > 0);
-    } catch {
-      setSignedIn(false);
-    }
+    void getAuthSession()
+      .then((user) => {
+        if (active) setSignedIn(Boolean(user));
+      })
+      .catch((reason: unknown) => {
+        if (active) {
+          setSignedIn(false);
+          setError(
+            reason instanceof Error ? reason.message : "Unable to verify your sign-in session.",
+          );
+        }
+      });
     void getSavedDeliveryAddress()
       .then((saved) => {
         if (active && saved) setAddress(saved);
@@ -127,7 +141,7 @@ function Checkout() {
       .catch((reason: unknown) => {
         if (active && reason instanceof Error && !reason.message.includes("Sign in")) {
           if (reason.message === "Invalid or expired session.") {
-            localStorage.removeItem("bhasi-auth-session");
+            setCurrentAuthUser(null);
             setSignedIn(false);
             setError("Your sign-in session expired. Sign in again to continue checkout.");
           } else {
@@ -201,7 +215,7 @@ function Checkout() {
       setNotice("Your designs are now saved to your account. Browser copies are still available.");
     } catch (reason) {
       if (reason instanceof Error && reason.message === "Invalid or expired session.") {
-        localStorage.removeItem("bhasi-auth-session");
+        setCurrentAuthUser(null);
         setSignedIn(false);
         setError(
           "Your sign-in session expired. Sign in again to place this order. Your bag is unchanged.",
@@ -452,6 +466,15 @@ function Checkout() {
             </div>
           )}
           <div className="mt-4 flex flex-wrap justify-center gap-3">
+            <Button asChild variant="outline">
+              <a
+                href={`https://wa.me/919035127328?text=${encodeURIComponent(`Hello Bhasi Gift Studio, I need help with order ${order.order_number}.`)}`}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                <MessageCircle /> Contact us on WhatsApp
+              </a>
+            </Button>
             <Button asChild>
               <Link to="/orders">View my orders</Link>
             </Button>
@@ -570,7 +593,19 @@ function Checkout() {
                 <input
                   type={type}
                   disabled={Boolean(pendingPayment)}
-                  autoComplete={key === "fullName" ? "name" : key === "phone" ? "tel" : undefined}
+                  autoComplete={
+                    {
+                      fullName: "name",
+                      phone: "tel",
+                      addressLine1: "address-line1",
+                      addressLine2: "address-line2",
+                      city: "address-level2",
+                      state: "address-level1",
+                      postalCode: "postal-code",
+                      country: "country-name",
+                    }[key]
+                  }
+                  inputMode={key === "phone" ? "tel" : key === "postalCode" ? "numeric" : undefined}
                   maxLength={
                     key === "addressLine1" || key === "addressLine2"
                       ? 200

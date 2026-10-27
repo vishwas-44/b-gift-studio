@@ -831,9 +831,28 @@
 .mobile-nav a {
   display: flex;
   justify-content: space-between;
+  align-items: center;
+  min-height: 44px;
   padding: 15px 0;
   border-bottom: 1px solid var(--border);
   font-size: 14px;
+}
+.mobile-nav button {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  min-height: 44px;
+  padding: 15px 0;
+  border-bottom: 1px solid var(--border);
+  border-radius: 0;
+  font-size: 14px;
+}
+.mobile-menu-sheet {
+  max-height: 100dvh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-top: calc(24px + env(safe-area-inset-top));
+  padding-bottom: calc(24px + env(safe-area-inset-bottom));
 }
 .editor-tabs {
   display: grid;
@@ -873,7 +892,7 @@
   overflow: hidden;
   border-radius: 7px;
   background: var(--preview-paper);
-  touch-action: none;
+  touch-action: pan-y;
 }
 .editor-base {
   position: absolute;
@@ -1402,7 +1421,6 @@
 .saved-design-preview {
   width: 100%;
   border-radius: 0;
-  container-type: inline-size;
 }
 .saved-design-preview .text-layer {
   pointer-events: none;
@@ -1909,4 +1927,160 @@
   border-color: var(--primary);
   box-shadow: 0 0 0 1px var(--primary);
   background: var(--accent);
+}
+
+/* Small-screen refinements shared by the storefront and admin surfaces. */
+@media (max-width: 767px) {
+  html,
+  body {
+    max-width: 100%;
+    overflow-x: clip;
+  }
+  .container {
+    width: calc(100% - 32px);
+  }
+  .header-main {
+    height: 70px;
+  }
+  .header-actions > :first-child,
+  .header-actions > :nth-child(2) {
+    display: none;
+  }
+  .header-actions .admin-shortcut {
+    display: none;
+  }
+  .header-actions > button {
+    min-width: 44px;
+    min-height: 44px;
+  }
+  .brand-name {
+    font-size: 26px;
+  }
+  .announcement {
+    padding-inline: 10px;
+    text-align: center;
+  }
+  input,
+  select,
+  textarea,
+  .field input:not([type="range"]):not([type="color"]),
+  .field textarea,
+  .field select,
+  .search-field,
+  .select-field {
+    font-size: 16px;
+  }
+  .catalog-toolbar {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .catalog-toolbar .select-field {
+    min-height: 44px;
+  }
+  .section-heading {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .section-heading .text-link {
+    min-height: 44px;
+    align-items: center;
+  }
+  .hero-buttons {
+    flex-wrap: wrap;
+  }
+  .hero-buttons > a {
+    min-height: 44px;
+  }
+  .product-image-action {
+    opacity: 1;
+  }
+  .cart-sheet {
+    width: min(100vw, 460px);
+    max-height: 100dvh;
+    padding-bottom: calc(18px + env(safe-area-inset-bottom));
+  }
+  .cart-row,
+  .checkout-list > div,
+  .tracking-items li,
+  .tracking-total,
+  .tracking-facts > p {
+    min-width: 0;
+  }
+  .checkout-list > div,
+  .tracking-items li {
+    align-items: flex-start;
+  }
+  .checkout-list > div > span:first-child,
+  .tracking-items li > span:first-child {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+  .auth-wrap {
+    margin-block: 32px 48px;
+    padding-inline: 16px;
+  }
+  .auth-wrap h1 {
+    font-size: 28px;
+  }
+  .editor-preview-wrap {
+    padding: 8px;
+  }
+  .editor-preview {
+    width: 100%;
+  }
+  .editor-color-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .editor-layer-row {
+    flex-wrap: wrap;
+  }
+  .editor-layer-row > button:first-child {
+    min-height: 44px;
+  }
+  [role="dialog"] {
+    max-width: calc(100vw - 24px);
+    max-height: calc(100dvh - 24px);
+    overflow-y: auto;
+  }
+  .mobile-order-cards {
+    display: grid;
+    gap: 12px;
+  }
+  .mobile-order-card {
+    display: grid;
+    gap: 12px;
+    padding: 16px;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: var(--card);
+  }
+  .mobile-order-card dl {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 8px 12px;
+    font-size: 13px;
+  }
+  .mobile-order-card dt {
+    color: var(--muted-foreground);
+  }
+  .mobile-order-card dd {
+    min-width: 0;
+    text-align: right;
+    overflow-wrap: anywhere;
+  }
+}
+
+@media (max-width: 359px) {
+  .container {
+    width: calc(100% - 24px);
+  }
+  .brand-symbol {
+    display: none;
+  }
+  .hero h1 {
+    font-size: 31px;
+  }
+  .occasion-tile {
+    padding-inline: 9px;
+  }
 }

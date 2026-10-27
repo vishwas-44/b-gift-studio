@@ -3,6 +3,7 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { ClipboardList, LoaderCircle, PackageOpen, Truck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { listMyOrders, type OrderHistoryRow } from "@/lib/api/orders";
+import { getAuthSession } from "@/lib/api/auth";
 import { pageHead } from "@/lib/api/storefront";
 
 export const Route = createFileRoute("/orders")({
@@ -25,12 +26,16 @@ function MyOrders() {
   const [error, setError] = useState("");
   useEffect(() => {
     let active = true;
-    try {
-      const session = JSON.parse(localStorage.getItem("bhasi-auth-session") || "null");
-      setSignedIn(typeof session?.access_token === "string" && session.access_token.length > 0);
-    } catch {
-      setSignedIn(false);
-    }
+    void getAuthSession()
+      .then((user) => {
+        if (active) setSignedIn(Boolean(user));
+      })
+      .catch((reason: unknown) => {
+        if (active)
+          setError(
+            reason instanceof Error ? reason.message : "Unable to verify your sign-in session.",
+          );
+      });
     void listMyOrders()
       .then((result) => {
         if (active) setOrders(result);

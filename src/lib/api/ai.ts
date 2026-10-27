@@ -1,22 +1,8 @@
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:5000";
-
-function getAccessToken(): string {
-  const raw = localStorage.getItem("bhasi-auth-session");
-  if (!raw) throw new Error("Sign in to use AI design tools.");
-  try {
-    const session = JSON.parse(raw) as { access_token?: unknown };
-    if (typeof session.access_token === "string" && session.access_token)
-      return session.access_token;
-  } catch {
-    // Return the same safe session error for malformed local session data.
-  }
-  throw new Error("Your sign-in session expired. Please sign in again.");
-}
+import { authFetch } from "./auth";
 
 async function requestImage(path: string, body: BodyInit): Promise<string> {
-  const response = await fetch(`${API_BASE_URL}/api/ai/${path}`, {
+  const response = await authFetch(`/api/ai/${path}`, {
     method: "POST",
-    headers: { Authorization: `Bearer ${getAccessToken()}` },
     body,
   });
   const payload = (await response.json().catch(() => null)) as {

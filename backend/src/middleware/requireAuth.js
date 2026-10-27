@@ -1,28 +1,41 @@
 const supabase = require("../supabase");
+const {
+  ACCESS_COOKIE,
+  REFRESH_COOKIE,
+  clearSessionCookies,
+  readCookie,
+  setSessionCookies,
+} = require("../services/authCookies");
 
 async function requireAuth(req, res, next) {
   try {
     const authorization = req.headers.authorization;
+    const bearerToken = authorization?.startsWith("Bearer ") ? authorization.slice(7).trim() : "";
+    const accessToken = bearerToken || readCookie(req, ACCESS_COOKIE);
+    const refreshToken = readCookie(req, REFRESH_COOKIE);
 
-    if (!authorization?.startsWith("Bearer ")) {
+    if (!accessToken && !refreshToken) {
       return res.status(401).json({
         success: false,
         message: "Authentication required.",
       });
     }
 
-    const token = authorization.slice(7).trim();
+    let token = accessToken;
+    let { data, error } = token ? await supabase.auth.getUser(token) : { data: null, error: true };
 
-    if (!token) {
-      return res.status(401).json({
-        success: false,
-        message: "Authentication required.",
-      });
+    if ((error || !data?.user) && refreshToken) {
+      const refreshed = await supabase.auth.refreshSession({ refresh_token: refreshToken });
+      if (!refreshed.error && refreshed.data.session) {
+        token = refreshed.data.session.access_token;
+        data = { user: refreshed.data.user };
+        error = null;
+        setSessionCookies(res, refreshed.data.session);
+      }
     }
 
-    const { data, error } = await supabase.auth.getUser(token);
-
-    if (error || !data.user) {
+    if (error || !data?.user) {
+      clearSessionCookies(res);
       return res.status(401).json({
         success: false,
         message: "Invalid or expired session.",
@@ -33,6 +46,7 @@ async function requireAuth(req, res, next) {
       id: data.user.id,
       email: data.user.email,
     };
+    req.authToken = token;
 
     next();
   } catch (error) {

@@ -2,6 +2,7 @@ import { useState, type FormEvent } from "react";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { ArrowLeft, ArrowRight, CheckCircle2, Heart, Mail, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { PasswordField } from "@/components/ui/password-field";
 import { pageHead } from "@/lib/api/storefront";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:5000";
@@ -281,35 +282,31 @@ function ForgotPasswordPage() {
 
         {step === 3 && (
           <form onSubmit={saveNewPassword} className="space-y-4">
-            <label className="field">
-              New password
-              <input
-                type="password"
-                name="new-password"
-                autoComplete="new-password"
-                placeholder="At least 8 characters"
-                value={password}
-                onChange={(event) => setPassword(event.target.value)}
-                minLength={8}
-                maxLength={128}
-                required
-              />
-            </label>
+            <PasswordField
+              id="reset-new-password"
+              name="new-password"
+              label="New password"
+              autoComplete="new-password"
+              placeholder="At least 8 characters"
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
+              minLength={8}
+              maxLength={128}
+              required
+            />
 
-            <label className="field">
-              Confirm new password
-              <input
-                type="password"
-                name="confirm-password"
-                autoComplete="new-password"
-                placeholder="Enter the password again"
-                value={confirmPassword}
-                onChange={(event) => setConfirmPassword(event.target.value)}
-                minLength={8}
-                maxLength={128}
-                required
-              />
-            </label>
+            <PasswordField
+              id="reset-confirm-password"
+              name="confirm-password"
+              label="Confirm new password"
+              autoComplete="new-password"
+              placeholder="Enter the password again"
+              value={confirmPassword}
+              onChange={(event) => setConfirmPassword(event.target.value)}
+              minLength={8}
+              maxLength={128}
+              required
+            />
 
             <Button type="submit" size="lg" className="w-full" disabled={busy}>
               {busy ? "Updating password..." : "Update password"}

@@ -35,26 +35,29 @@ Apply these migrations in order in the Supabase SQL Editor:
 7. `20261018060000_customer_feedback.sql`
 8. `20261018070000_courier_bill_tracking.sql`
 9. `20261018080000_manual_upi_qr_payment.sql`
+10. `20261018110000_link_multiple_order_artwork.sql`
+11. `20261018120000_cod_payment_confirmation.sql`
 
-The account, `profiles`, `saved_designs` and `design_assets` schema and the private `customer-design-assets` Storage bucket must also exist with the expected policies. Verify these in the target Supabase project; they are not all created by the migrations in this repository. Assign the `admin` role only to trusted staff. Never expose `SUPABASE_SERVICE_ROLE_KEY` in browser or build variables.
+The account, `profiles`, `saved_designs` and `design_assets` schema and the private `customer-design-assets` Storage bucket must also exist with the expected policies. The signup and password-reset flows also require `pending_signup_otps` and `password_reset_otps` tables; no migrations for these tables are present here. Verify these schemas and restrictive Row Level Security policies in the target Supabase project before launch. Assign the `admin` role only to trusted staff. Never expose `SUPABASE_SERVICE_ROLE_KEY` in browser or build variables.
 
 ## Deployment configuration
 
 Deploy the TanStack storefront and Express API as separate services unless the hosting platform explicitly supports both. Configure:
 
-- Storefront: `VITE_API_BASE_URL` pointing to the HTTPS API URL.
+- Storefront: `VITE_API_BASE_URL` pointing to the HTTPS API URL. Serve the storefront and API from the same site (for example, `shop.example.com` and `api.example.com`) so the HttpOnly, SameSite=Lax authentication cookies work without third-party-cookie access.
 - API: `NODE_ENV=production`, `FRONTEND_URL` set to the storefront origin (HTTPS, no path), `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, a random `OTP_HASH_SECRET` of at least 32 characters, and the SMTP variables shown in `backend/.env.example`. If the API sits behind a reverse proxy, set `TRUST_PROXY_HOPS` to the exact number of trusted proxy hops so request IP rate limits work correctly; never set blanket proxy trust.
 - Razorpay: test `RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET`, and `RAZORPAY_WEBHOOK_SECRET` first. Set the provider webhook to `/api/webhooks/razorpay` and subscribe to `payment.captured`. Use live keys only after test verification and explicit business approval.
 - Manual UPI QR: set `UPI_QR_IMAGE_URL` to the public HTTPS URL of the merchant QR image and `MERCHANT_UPI_ID` to the matching merchant UPI ID. Customers submit their UPI transaction reference; an admin must verify the transfer in the bank account and mark it paid. Never treat a customer-provided reference or payment screenshot as proof of receipt.
 - AI image generation: `OPENAI_API_KEY` on the backend if AI tools are offered. Never put it in a `VITE_` variable.
 - Email/OTP: set the SMTP and sender values required by `backend/src/services/mailer.js` and verify signup and password-reset delivery.
+- Admin notifications: set `RESEND_API_KEY`, `EMAIL_FROM`, and `ADMIN_NOTIFICATION_EMAIL` on the API. New persisted orders and customer feedback then notify only that configured recipient; delivery failures are logged without rolling back the customer record.
 
 Do not deploy with placeholder values from `.env.example`. Confirm HTTPS, allowed CORS origin, webhook delivery, backend health, and required migrations before opening checkout to customers.
 
 ## Current limitations and launch checklist
 
 - Shipping and tax are currently zero and are not configured. Add the correct rules and show the final payable amount before launch.
-- COD, manual UPI QR and Razorpay are supported in the code. Manual QR payments remain unpaid until an administrator verifies the transaction reference against the bank account. Net banking, UPI, cards and wallets are presented by Razorpay according to the merchant account configuration; verify enabled modes in Razorpay test checkout.
+- COD, manual UPI QR and Razorpay are supported in the code. COD remains unpaid until an administrator explicitly records cash collection from the order page; that server-enforced transition is one-way and records the confirmation time and administrator. Manual QR payments remain unpaid until an administrator verifies the transaction reference against the bank account. Net banking, UPI, cards and wallets are presented by Razorpay according to the merchant account configuration; verify enabled modes in Razorpay test checkout.
 - Courier updates are entered by an administrator; no carrier API is connected. Confirm the team can fulfill orders and contact customers using the required phone number.
 - Product photos are illustrative and customizer previews are not print proofs. Confirm product print areas, artwork output resolution, card layouts, packaging and print/fulfillment operations.
 - AI features require a valid backend OpenAI key and have per-user rate limits. Verify cost limits, consent and customer image retention before enabling them publicly.

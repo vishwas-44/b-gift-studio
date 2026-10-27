@@ -12,8 +12,8 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { pageHead } from "@/lib/api/storefront";
+import { authFetch, getAuthSession, signOut as endSession } from "@/lib/api/auth";
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:5000";
 const PAGE_SIZE = 20;
 
 type Feedback = {
@@ -53,7 +53,7 @@ function statusClass(status: Feedback["status"]) {
 }
 
 function AdminFeedbackPage() {
-  const [token, setToken] = useState("");
+  const [authenticated, setAuthenticated] = useState(false);
   const [sessionChecked, setSessionChecked] = useState(false);
   const [rows, setRows] = useState<Feedback[]>([]);
   const [status, setStatus] = useState("");
@@ -67,27 +67,34 @@ function AdminFeedbackPage() {
   const [forbidden, setForbidden] = useState(false);
 
   useEffect(() => {
-    try {
-      const saved = JSON.parse(localStorage.getItem("bhasi-auth-session") || "null");
-      if (typeof saved?.access_token === "string") setToken(saved.access_token);
-    } catch {
-      setError("Your saved sign-in session could not be read. Please log in again.");
-    } finally {
-      setSessionChecked(true);
-    }
+    let active = true;
+    void getAuthSession()
+      .then((user) => {
+        if (active) setAuthenticated(Boolean(user));
+        if (active) setSessionChecked(true);
+      })
+      .catch((reason: unknown) => {
+        if (active) {
+          setError(
+            reason instanceof Error ? reason.message : "Unable to verify your sign-in session.",
+          );
+          setSessionChecked(true);
+        }
+      });
+    return () => {
+      active = false;
+    };
   }, []);
 
   async function loadFeedback(nextPage = page) {
-    if (!token) return;
+    if (!authenticated) return;
     setLoading(true);
     setError("");
     setForbidden(false);
     const params = new URLSearchParams({ page: String(nextPage), limit: String(PAGE_SIZE) });
     if (status) params.set("status", status);
     try {
-      const response = await fetch(`${API_BASE_URL}/api/admin/feedback?${params}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const response = await authFetch(`/api/admin/feedback?${params}`, {});
       const result = (await response.json()) as FeedbackResponse;
       if (response.status === 401) throw new Error("Your session expired. Please sign in again.");
       if (response.status === 403) {
@@ -108,20 +115,19 @@ function AdminFeedbackPage() {
   }
 
   useEffect(() => {
-    if (token) void loadFeedback(1);
+    if (authenticated) void loadFeedback(1);
     // Refresh the list when the administrator session or status filter changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [token, status]);
+  }, [authenticated, status]);
 
   async function updateStatus(item: Feedback, nextStatus: Feedback["status"]) {
     setSavingId(item.id);
     setError("");
     setNotice("");
     try {
-      const response = await fetch(`${API_BASE_URL}/api/admin/feedback/${item.id}`, {
+      const response = await authFetch(`/api/admin/feedback/${item.id}`, {
         method: "PATCH",
         headers: {
-          Authorization: `Bearer ${token}`,
           "Content-Type": "application/json",
         },
         body: JSON.stringify({ status: nextStatus }),
@@ -140,19 +146,19 @@ function AdminFeedbackPage() {
     }
   }
 
-  function signOut() {
-    localStorage.removeItem("bhasi-auth-session");
+  async function signOutPage() {
+    await endSession();
     window.location.assign("/login");
   }
 
-  if (!sessionChecked || (token && loading && rows.length === 0 && !error)) {
+  if (!sessionChecked || (authenticated && loading && rows.length === 0 && !error)) {
     return (
       <div className="flex min-h-screen items-center justify-center gap-2">
         <LoaderCircle className="animate-spin" /> Loading feedback…
       </div>
     );
   }
-  if (!token) {
+  if (!authenticated) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-stone-50 p-6">
         <section className="w-full max-w-md rounded-2xl border bg-white p-8 text-center">
@@ -185,7 +191,7 @@ function AdminFeedbackPage() {
           <Button variant="outline" disabled={loading} onClick={() => void loadFeedback(page)}>
             <RefreshCw size={16} className={loading ? "animate-spin" : ""} /> Refresh
           </Button>
-          <Button variant="outline" onClick={signOut}>
+          <Button variant="outline" onClick={signOutPage}>
             Sign out
           </Button>
         </div>

@@ -4,6 +4,7 @@ import {
   AlertCircle,
   ArrowDownRight,
   ArrowUpRight,
+  BarChart3,
   ChevronLeft,
   ChevronRight,
   ClipboardList,
@@ -11,6 +12,7 @@ import {
   LayoutDashboard,
   LoaderCircle,
   LogOut,
+  Menu,
   MessageSquareText,
   Package,
   RefreshCw,
@@ -19,9 +21,14 @@ import {
   Users,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Sheet, SheetContent, SheetDescription, SheetTitle } from "@/components/ui/sheet";
 import { pageHead } from "@/lib/api/storefront";
-
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:5000";
+import {
+  authFetch,
+  getAuthSession,
+  setCurrentAuthUser,
+  signOut as endSession,
+} from "@/lib/api/auth";
 
 type Order = {
   id: string;
@@ -45,9 +52,8 @@ type OrdersResponse = {
   };
 };
 
-type AdminSession = {
-  access_token: string;
-};
+type AdminSession = true;
+type Session = true;
 
 type TractionDay = { date: string; visitors: number; orders: number };
 type TractionSummary = {
@@ -127,27 +133,30 @@ function AdminDashboard() {
   const [tractionDays, setTractionDays] = useState(30);
   const [tractionLoading, setTractionLoading] = useState(false);
   const [tractionError, setTractionError] = useState("");
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   useEffect(() => {
-    try {
-      const saved = localStorage.getItem("bhasi-auth-session");
-
-      if (saved) {
-        const parsed = JSON.parse(saved) as Partial<AdminSession>;
-
-        if (typeof parsed.access_token === "string" && parsed.access_token.length > 0) {
-          setSession({ access_token: parsed.access_token });
+    let active = true;
+    void getAuthSession()
+      .then((user) => {
+        if (active && user) setSession(true);
+        if (active) setSessionChecked(true);
+      })
+      .catch((reason: unknown) => {
+        if (active) {
+          setError(
+            reason instanceof Error ? reason.message : "Unable to verify your sign-in session.",
+          );
+          setSessionChecked(true);
         }
-      }
-    } catch {
-      setError("Your saved login session could not be read. Please log in again.");
-    } finally {
-      setSessionChecked(true);
-    }
+      });
+    return () => {
+      active = false;
+    };
   }, []);
 
   async function loadOrders(currentPage = page) {
-    if (!session?.access_token) return;
+    if (!session) return;
 
     setLoading(true);
     setError("");
@@ -163,11 +172,7 @@ function AdminDashboard() {
     if (paymentStatus) params.set("payment_status", paymentStatus);
 
     try {
-      const response = await fetch(`${API_BASE_URL}/api/admin/orders?${params.toString()}`, {
-        headers: {
-          Authorization: `Bearer ${session.access_token}`,
-        },
-      });
+      const response = await authFetch(`/api/admin/orders?${params.toString()}`, {});
 
       const result = (await response.json()) as OrdersResponse;
 
@@ -202,13 +207,11 @@ function AdminDashboard() {
   }
 
   async function loadTraction(days = tractionDays) {
-    if (!session?.access_token) return;
+    if (!session) return;
     setTractionLoading(true);
     setTractionError("");
     try {
-      const response = await fetch(`${API_BASE_URL}/api/analytics/summary?days=${days}`, {
-        headers: { Authorization: `Bearer ${session.access_token}` },
-      });
+      const response = await authFetch(`/api/analytics/summary?days=${days}`, {});
       const result = await response.json();
       if (!response.ok || !result.success)
         throw new Error(result.message || "Unable to load traction metrics.");
@@ -234,8 +237,8 @@ function AdminDashboard() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session, tractionDays]);
 
-  function logout() {
-    localStorage.removeItem("bhasi-auth-session");
+  async function logout() {
+    await endSession();
     window.location.assign("/login");
   }
 
@@ -245,6 +248,7 @@ function AdminDashboard() {
     { label: "Products", icon: Package, to: "/admin/products" as const },
     { label: "Customers", icon: Users, to: "/admin/customers" as const },
     { label: "Feedback", icon: MessageSquareText, to: "/admin/feedback" as const },
+    { label: "Reports", icon: BarChart3, to: "/admin/reports" as const },
   ];
 
   const maxVisitors = Math.max(1, ...(traction?.trend.slice(-14).map((day) => day.visitors) ?? []));
@@ -282,6 +286,41 @@ function AdminDashboard() {
 
   return (
     <div className="min-h-screen bg-stone-50 text-stone-900">
+      <Sheet open={mobileMenuOpen} onOpenChange={setMobileMenuOpen}>
+        <SheetContent side="left" className="flex w-[min(85vw,320px)] flex-col gap-0 p-0 md:hidden">
+          <div className="border-b p-5">
+            <SheetTitle>Bhasi Gift Studio</SheetTitle>
+            <SheetDescription>Administrator workspace</SheetDescription>
+          </div>
+          <nav className="space-y-1 p-3" aria-label="Admin navigation">
+            {navigation.map((item) => {
+              const Icon = item.icon;
+              const active = item.label === "Overview";
+              return (
+                <Link
+                  key={item.label}
+                  to={item.to}
+                  onClick={() => setMobileMenuOpen(false)}
+                  className={`flex min-h-11 items-center gap-3 rounded-xl px-4 py-3 text-sm transition-colors ${
+                    active
+                      ? "bg-rose-50 font-semibold text-rose-600"
+                      : "text-stone-600 hover:bg-stone-50 hover:text-rose-600"
+                  }`}
+                >
+                  <Icon size={18} />
+                  {item.label}
+                </Link>
+              );
+            })}
+          </nav>
+          <div className="mt-auto border-t p-4">
+            <Button variant="outline" className="min-h-11 w-full" onClick={logout}>
+              <LogOut size={16} />
+              Sign out
+            </Button>
+          </div>
+        </SheetContent>
+      </Sheet>
       <aside className="fixed inset-y-0 left-0 z-20 hidden w-64 flex-col border-r border-stone-200 bg-white md:flex">
         <Link to="/" className="flex items-center gap-3 border-b p-6">
           <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-rose-100 text-rose-600">
@@ -340,17 +379,28 @@ function AdminDashboard() {
       </aside>
 
       <div className="md:pl-64">
-        <header className="flex items-center justify-between border-b bg-white px-5 py-4 md:px-8">
+        <header className="flex items-center justify-between gap-3 border-b bg-white px-4 py-4 md:px-8">
           <div>
             <p className="text-xs font-medium uppercase tracking-wider text-rose-500">
               Bhasi Gift Studio
             </p>
             <h1 className="mt-1 text-xl font-bold md:text-2xl">Store overview</h1>
           </div>
-          <Button variant="outline" size="sm" onClick={() => void loadOrders(page)}>
-            <RefreshCw size={15} className={loading ? "animate-spin" : ""} />
-            Refresh
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              className="md:hidden"
+              variant="outline"
+              size="icon"
+              aria-label="Open admin navigation"
+              onClick={() => setMobileMenuOpen(true)}
+            >
+              <Menu />
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => void loadOrders(page)}>
+              <RefreshCw size={15} className={loading ? "animate-spin" : ""} />
+              Refresh
+            </Button>
+          </div>
         </header>
 
         <main className="space-y-6 p-4 md:p-8">

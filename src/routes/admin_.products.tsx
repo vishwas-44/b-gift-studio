@@ -13,12 +13,14 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { pageHead } from "@/lib/api/storefront";
+import {
+  authFetch,
+  getAuthSession,
+  setCurrentAuthUser,
+  signOut as endSession,
+} from "@/lib/api/auth";
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:5000";
-
-type AdminSession = {
-  access_token: string;
-};
+type AdminSession = true;
 
 type Product = {
   id: string;
@@ -75,33 +77,34 @@ function AdminProductsPage() {
   const [drafts, setDrafts] = useState<Record<string, { price: string; stock: string }>>({});
 
   useEffect(() => {
-    try {
-      const raw = localStorage.getItem("bhasi-auth-session");
-
-      if (raw) {
-        const parsed = JSON.parse(raw) as Partial<AdminSession>;
-
-        if (typeof parsed.access_token === "string" && parsed.access_token.length > 0) {
-          setSession({ access_token: parsed.access_token });
+    let active = true;
+    void getAuthSession()
+      .then((user) => {
+        if (active && user) setSession(true);
+        if (active) setSessionChecked(true);
+      })
+      .catch((reason: unknown) => {
+        if (active) {
+          setError(
+            reason instanceof Error ? reason.message : "Unable to verify your sign-in session.",
+          );
+          setSessionChecked(true);
         }
-      }
-    } catch {
-      setError("Your saved session could not be read. Please sign in again.");
-    } finally {
-      setSessionChecked(true);
-    }
+      });
+    return () => {
+      active = false;
+    };
   }, []);
 
   const apiRequest = useCallback(
     async (path: string, options: RequestInit = {}) => {
-      if (!session?.access_token) {
+      if (!session) {
         throw new Error("Please sign in to continue.");
       }
 
-      const response = await fetch(`${API_BASE_URL}${path}`, {
+      const response = await authFetch(path, {
         ...options,
         headers: {
-          Authorization: `Bearer ${session.access_token}`,
           ...(options.body ? { "Content-Type": "application/json" } : {}),
           ...options.headers,
         },
@@ -110,7 +113,7 @@ function AdminProductsPage() {
       const result = (await response.json()) as ProductsResponse;
 
       if (response.status === 401) {
-        localStorage.removeItem("bhasi-auth-session");
+        void endSession();
         throw new Error("Your session has expired. Please sign in again.");
       }
 
@@ -243,7 +246,7 @@ function AdminProductsPage() {
   }
 
   function logout() {
-    localStorage.removeItem("bhasi-auth-session");
+    void endSession();
     window.location.assign("/login");
   }
 

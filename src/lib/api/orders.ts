@@ -1,5 +1,4 @@
-﻿const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:5000";
-const SESSION_KEY = "bhasi-auth-session";
+﻿import { authFetch, clearLegacyAuthSession } from "./auth";
 
 export type DeliveryAddress = {
   fullName: string;
@@ -36,29 +35,16 @@ export type CreatedOrder = {
   payment_verified_at?: string | null;
 };
 
-function token(): string {
-  let session: { access_token?: unknown };
-  try {
-    session = JSON.parse(localStorage.getItem(SESSION_KEY) || "null");
-  } catch {
-    throw new Error("Your saved sign-in session is invalid. Please sign in again.");
-  }
-  if (typeof session?.access_token !== "string" || !session.access_token) {
-    throw new Error("Sign in to place an order.");
-  }
-  return session.access_token;
-}
-
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
-  const response = await fetch(`${API_BASE_URL}${path}`, {
+  const response = await authFetch(path, {
     ...options,
     headers: {
-      Authorization: `Bearer ${token()}`,
       ...(options.body ? { "Content-Type": "application/json" } : {}),
       ...options.headers,
     },
   });
   const payload = await response.json().catch(() => null);
+  if (response.status === 401) clearLegacyAuthSession();
   if (!response.ok || !payload?.success) {
     throw new Error(
       typeof payload?.message === "string"
