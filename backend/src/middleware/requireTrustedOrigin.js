@@ -1,0 +1,28 @@
+function requireTrustedOrigin(allowedOrigin) {
+  const allowedOrigins = new Set(
+    allowedOrigin instanceof Set
+      ? allowedOrigin
+      : Array.isArray(allowedOrigin)
+        ? allowedOrigin
+        : [allowedOrigin],
+  );
+
+  return (req, res, next) => {
+    const origin = req.headers.origin;
+    if (origin && !allowedOrigins.has(origin)) {
+      return res.status(403).json({ success: false, message: "Origin is not allowed." });
+    }
+
+    const isUnsafeMethod = ["POST", "PUT", "PATCH", "DELETE"].includes(req.method);
+    const hasSessionCookie = /(?:^|;)\s*bgs_(?:access|refresh)=/.test(req.headers.cookie || "");
+    if (isUnsafeMethod && hasSessionCookie && (!origin || !allowedOrigins.has(origin))) {
+      return res
+        .status(403)
+        .json({ success: false, message: "A valid request origin is required." });
+    }
+
+    return next();
+  };
+}
+
+module.exports = requireTrustedOrigin;
